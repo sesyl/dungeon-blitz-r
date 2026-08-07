@@ -75,6 +75,9 @@ export interface AbcParseResult {
   doubleValues: number[];
   doubleValuePositions: number[];
   stringValues: string[];
+  stringCountPos: number;
+  stringCountEnd: number;
+  stringPoolEnd: number;
   stringLenPositions: number[];
   stringDataPositions: number[];
   multinameNames: string[];
@@ -387,8 +390,10 @@ export function parseAbc(ctx: SwfContext): AbcParseResult {
     pos += 8;
   }
 
+  const stringCountPos = pos;
   let stringCount: number;
   [stringCount, pos] = readU30(data, pos, "abc.string_count");
+  const stringCountEnd = pos;
   const stringValues = [""];
   const stringLenPositions = [0];
   const stringDataPositions = [0];
@@ -403,6 +408,7 @@ export function parseAbc(ctx: SwfContext): AbcParseResult {
     stringDataPositions.push(dataPos);
     pos += strlen;
   }
+  const stringPoolEnd = pos;
 
   [count, pos] = readU30(data, pos, "abc.namespace_count");
   for (let i = 1; i < count; i += 1) {
@@ -620,6 +626,9 @@ export function parseAbc(ctx: SwfContext): AbcParseResult {
     doubleValues,
     doubleValuePositions,
     stringValues,
+    stringCountPos,
+    stringCountEnd,
+    stringPoolEnd,
     stringLenPositions,
     stringDataPositions,
     multinameNames,
