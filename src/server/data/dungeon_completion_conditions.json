@@ -81,7 +81,6 @@
     "JC_Mini1": {"mode":"full-clear"},
     "JC_Mini1Hard": {"mode":"full-clear"},
     "JC_Mini2": {"mode":"full-clear"},
-    "LegendsInn": {"mode":"bosses","bossGroups":[["DragonTemple"]]},
     "JC_Mini2Hard": {"mode":"full-clear"},
     "JC_Mission1": {"mode":"bosses","bossGroups":[["ImperialChampion"]],"cutscene":{"requiredAfterObjectives":true},"clientAuthorityBosses":["ImperialChampion"]},
     "JC_Mission10": {"mode":"bosses","bossGroups":[["DragonTemple"]],"bossAliases":{"DragonTempleMarker":"DragonTemple"},"clientAuthorityBosses":["DragonTemple"]},
@@ -171,6 +170,15 @@
     "SwampRoadConnectionMissionHard": {"mode":"bosses","bossGroups":[["SwampSpiderQueenHard"]],"bossAliases":{"Aracnae":"SwampSpiderQueenHard","Arachnae":"SwampSpiderQueenHard","Hsalt's Pride":"SwampSpiderQueenHard","SwampSpiderQueen":"SwampSpiderQueenHard"},"cutscene":{"requiredAfterObjectives":true}},
     "TutorialBoat": {"mode":"client-signal"},
     "TutorialDungeon":{"mode":"bosses","partyHostileSync":"bosses-only","bossGroups":[["GoblinBoss1"]],"bossAliases":{"Tag Ugo":"GoblinBoss1","TagUgo":"GoblinBoss1"},"entityObjectives":[{"names":["Chains03"],"role":"anna_freed"}],"cutscene":{"requiredAfterObjectives":true}},
-    "TutorialDungeonHard": {"mode":"bosses","partyHostileSync":"bosses-only","bossGroups":[["GoblinBoss1Hard"]],"bossAliases":{"GoblinBoss1":"GoblinBoss1Hard","Tag Ugo":"GoblinBoss1Hard","TagUgo":"GoblinBoss1Hard"},"cutscene":{"requiredAfterObjectives":true}}
+    "TutorialDungeonHard": {"mode":"bosses","partyHostileSync":"bosses-only","bossGroups":[["GoblinBoss1Hard"]],"bossAliases":{"GoblinBoss1":"GoblinBoss1Hard","Tag Ugo":"GoblinBoss1Hard","TagUgo":"GoblinBoss1Hard"},"cutscene":{"requiredAfterObjectives":true}},
+    "LegendsInn1": {"mode":"disabled"},
+    "LegendsInn2": {"mode":"disabled"},
+    "LegendsInn3": {"mode":"disabled"},
+    "LegendsInn4": {"mode":"disabled"},
+    "LegendsInn5": {"mode":"disabled"},
+    "LegendsInn6": {"mode":"disabled"},
+    "LegendsInn7": {"mode":"disabled"},
+    "LegendsInn8": {"mode":"disabled"},
+    "LegendsInn9": {"mode":"full-clear"}
   }
 }

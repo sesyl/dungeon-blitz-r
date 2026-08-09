@@ -6108,46 +6108,34 @@
       "a_Room_JCMini2_04"
     ]
   },
-  "LegendsInn": {
+  "LegendsInn1": {
     "elements": [
       "Earth",
-      "Ice"
+      "Death"
     ],
     "enemyTypes": [
       {
-        "enemyType": "CastleLizard1",
+        "enemyType": "GoblinBrute",
+        "count": 6
+      },
+      {
+        "enemyType": "GoblinHatchet",
+        "count": 6
+      },
+      {
+        "enemyType": "GoblinShamanHood",
+        "count": 5
+      },
+      {
+        "enemyType": "GoblinShamanSkullHat",
         "count": 3
       },
       {
-        "enemyType": "DesolateDevourer",
-        "count": 3
-      },
-      {
-        "enemyType": "DreadPaladin",
-        "count": 3
-      },
-      {
-        "enemyType": "GladeSpider",
-        "count": 3
-      },
-      {
-        "enemyType": "ImpTrickster",
-        "count": 3
-      },
-      {
-        "enemyType": "InfusedSkeletonClub",
-        "count": 3
-      },
-      {
-        "enemyType": "SwampSkeletonClub",
-        "count": 3
-      },
-      {
-        "enemyType": "BanditTwinB",
+        "enemyType": "GoblinArmorAxe",
         "count": 2
       },
       {
-        "enemyType": "BoneFiend",
+        "enemyType": "GoblinClub",
         "count": 2
       },
       {
@@ -6155,44 +6143,113 @@
         "count": 2
       },
       {
-        "enemyType": "GoblinHatchet",
-        "count": 2
+        "enemyType": "GoblinArmorSword",
+        "count": 1
       },
       {
-        "enemyType": "GoblinShamanHood",
-        "count": 2
+        "enemyType": "GoblinBoss2",
+        "count": 1
       },
       {
-        "enemyType": "InfusedSkeletonSorcerer",
-        "count": 2
+        "enemyType": "GrayGhostServant",
+        "count": 1
+      }
+    ],
+    "source": "level-swf",
+    "rooms": [
+      "a_Room_GoblinCamp01",
+      "a_Room_GoblinCamp02",
+      "a_Room_GoblinCamp03",
+      "a_Room_GoblinCamp04",
+      "a_Room_GoblinCamp05",
+      "a_Room_GoblinCamp06",
+      "a_Room_GoblinCamp07",
+      "a_Room_GoblinCamp08",
+      "a_Room_GoblinCamp09",
+      "a_Room_GoblinCamp10",
+      "a_Room_GoblinCamp11"
+    ]
+  },
+  "LegendsInn2": {
+    "elements": [
+      "Death",
+      "Fire"
+    ],
+    "enemyTypes": [
+      {
+        "enemyType": "SwampSkeletonSorcerer",
+        "count": 7
       },
       {
-        "enemyType": "PuckShadow",
-        "count": 2
+        "enemyType": "GrayGhostKnight",
+        "count": 3
+      },
+      {
+        "enemyType": "DragonGreen",
+        "count": 1
+      },
+      {
+        "enemyType": "SwampSkeletonSword",
+        "count": 1
+      }
+    ],
+    "source": "level-swf",
+    "rooms": [
+      "a_Room_SRNM07R03",
+      "a_Room_SRNM07R05",
+      "a_Room_SRNM07R06",
+      "a_Room_SRNM07R08",
+      "a_Room_SRNM07R10",
+      "a_Room_SRNM07R11",
+      "a_Room_SRNM07R16",
+      "a_Room_SRNM07R17",
+      "a_Room_SRNM07R22",
+      "a_Room_SRNM07R23",
+      "a_Room_SRNM07R24",
+      "a_Room_SRNM07R25",
+      "a_Room_SRNM07R27",
+      "a_Room_SRNM07SvathBoss"
+    ]
+  },
+  "LegendsInn3": {
+    "elements": [
+      "Ice"
+    ],
+    "enemyTypes": [
+      {
+        "enemyType": "BanditTwinA",
+        "count": 1
+      },
+      {
+        "enemyType": "BanditTwinB",
+        "count": 1
+      }
+    ],
+    "source": "level-swf",
+    "rooms": [
+      "a_Room_BTM01RBanditCampBoss"
+    ]
+  },
+  "LegendsInn4": {
+    "elements": [
+      "Death"
+    ],
+    "enemyTypes": [
+      {
+        "enemyType": "RedGhostServant",
+        "count": 6
+      },
+      {
+        "enemyType": "RedGhostServantFly",
+        "count": 4
+      },
+      {
+        "enemyType": "YellowGhostServant",
+        "count": 4
       },
       {
         "enemyType": "RedGhostKnight",
         "count": 2
-      },
-      {
-        "enemyType": "RedGhostServant",
-        "count": 2
-      },
-      {
-        "enemyType": "ShadeWarrior",
-        "count": 2
-      },
-      {
-        "enemyType": "SwampSpider",
-        "count": 2
-      },
-      {
-        "enemyType": "DragonTemple",
-        "count": 1
-      },
-      {
-        "enemyType": "ImperialMagi",
-        "count": 1
       },
       {
         "enemyType": "RedGhostLord",
@@ -6201,15 +6258,178 @@
     ],
     "source": "level-swf",
     "rooms": [
-      "a_Room_LI_01",
-      "a_Room_LI_02",
-      "a_Room_LI_03",
-      "a_Room_LI_04",
-      "a_Room_LI_05",
-      "a_Room_LI_06",
-      "a_Room_LI_07",
-      "a_Room_LI_08",
-      "a_Room_LI_09"
+      "a_Room_CH03",
+      "a_Room_CHM03RCrovnagBoss"
+    ]
+  },
+  "LegendsInn5": {
+    "elements": [
+      "Fire"
+    ],
+    "enemyTypes": [
+      {
+        "enemyType": "DragonRed",
+        "count": 1
+      }
+    ],
+    "source": "level-swf",
+    "rooms": [
+      "a_Room_OMM06_ForgottenForgeBoss"
+    ]
+  },
+  "LegendsInn6": {
+    "elements": [
+      "Ice",
+      "Fire",
+      "Life"
+    ],
+    "enemyTypes": [
+      {
+        "enemyType": "FirePriest",
+        "count": 4
+      },
+      {
+        "enemyType": "FirePriest2",
+        "count": 2
+      },
+      {
+        "enemyType": "DesolateDevourerHeavy",
+        "count": 1
+      },
+      {
+        "enemyType": "FireMinotaur2",
+        "count": 1
+      },
+      {
+        "enemyType": "FirePriestWizard",
+        "count": 1
+      },
+      {
+        "enemyType": "PyrFiend",
+        "count": 1
+      },
+      {
+        "enemyType": "PyrFiend2",
+        "count": 1
+      }
+    ],
+    "source": "level-swf",
+    "rooms": [
+      "a_Room_M05RRefugeOfTheDamnedBoss",
+      "a_Room_Refuge_R01",
+      "a_Room_Refuge_R02",
+      "a_Room_Refuge_R03",
+      "a_Room_Refuge_R04",
+      "a_Room_Refuge_R05",
+      "a_Room_Refuge_R06",
+      "a_Room_Refuge_R07",
+      "a_Room_Refuge_R08",
+      "a_Room_Refuge_R09",
+      "a_Room_Refuge_R10"
+    ]
+  },
+  "LegendsInn7": {
+    "elements": [
+      "Fire",
+      "Death"
+    ],
+    "enemyTypes": [
+      {
+        "enemyType": "CastleLizardHeavy1",
+        "count": 3
+      },
+      {
+        "enemyType": "CastleLizardHeavy2",
+        "count": 3
+      },
+      {
+        "enemyType": "CastleLizardMaster",
+        "count": 2
+      },
+      {
+        "enemyType": "DreadChampion2",
+        "count": 1
+      },
+      {
+        "enemyType": "DreadLord",
+        "count": 1
+      },
+      {
+        "enemyType": "DreadPaladin",
+        "count": 1
+      },
+      {
+        "enemyType": "DreadPaladin3",
+        "count": 1
+      }
+    ],
+    "source": "level-swf",
+    "rooms": [
+      "a_Room_ACM02REmeraldThroneBoss",
+      "a_Room_Throne_R01",
+      "a_Room_Throne_R02",
+      "a_Room_Throne_R03",
+      "a_Room_Throne_R04",
+      "a_Room_Throne_R05",
+      "a_Room_Throne_R06",
+      "a_Room_Throne_R07",
+      "a_Room_Throne_R08",
+      "a_Room_Throne_R09"
+    ]
+  },
+  "LegendsInn8": {
+    "elements": [
+      "Fire"
+    ],
+    "enemyTypes": [
+      {
+        "enemyType": "RaptorHorned",
+        "count": 1
+      }
+    ],
+    "source": "level-swf",
+    "rooms": [
+      "a_Room_SDMission01"
+    ]
+  },
+  "LegendsInn9": {
+    "elements": [
+      "Air",
+      "Ice",
+      "Death"
+    ],
+    "enemyTypes": [
+      {
+        "enemyType": "DemonReaper",
+        "count": 2
+      },
+      {
+        "enemyType": "BoneGolem",
+        "count": 1
+      },
+      {
+        "enemyType": "GreaterDemonMaligner",
+        "count": 1
+      },
+      {
+        "enemyType": "ImperialMagus",
+        "count": 1
+      },
+      {
+        "enemyType": "PortalFiend2",
+        "count": 1
+      },
+      {
+        "enemyType": "TowerGuard1",
+        "count": 1
+      }
+    ],
+    "source": "level-swf",
+    "rooms": [
+      "a_Room_JCMini1_01",
+      "a_Room_JCMini1_02",
+      "a_Room_JCMini1_03",
+      "a_Room_JCMini1_04"
     ]
   }
 }

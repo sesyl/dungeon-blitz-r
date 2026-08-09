@@ -61,12 +61,35 @@ const DOOR_DONOR_CLASS = "a_PlayerDevSpawn";
 const ART_DONOR_CLASS = "a_Volume";
 
 /**
- * The name plate is the fixed part of this layout - it is where it should be on
- * screen - so the a_DoorMarker anchor is stated outright and the portal is derived
- * from it. a_Level_Home world pixels; the a_Room_GuildHall floor line under the
- * portal is y = 1360, so the whole assembly hangs above the path.
+ * Where the middle of the drawn portal lands, in a_Level_Home world pixels.
+ * This is the fixed part of the layout and everything else follows it.
+ *
+ * x is the centre of the tree the portal hangs on. Two trunks overlap behind it
+ * in a_Room_GuildHall - characters 2071 (172 wide, centred at room-local 2998.7)
+ * and 2073 (152 wide, centred at 3029.5) - so the visible mass runs 2912.7..3105.5
+ * and its middle is room-local 3009, i.e. world -251. y sits a little below the
+ * trunks' own middle (room-local 412) so the portal reads as hanging, not floating.
  */
-const PLATE_ANCHOR_WORLD = { x: -459.75, y: 857.25 };
+const PORTAL_CENTRE_WORLD = { x: -251, y: 1002 };
+
+/** How large the portal is drawn. The door marker is scaled to match so the
+ * clickable rectangle keeps covering the artwork. */
+const PORTAL_SCALE = 0.75;
+
+/**
+ * a_Animation_Portal's artwork relative to its origin, from the sprite bounds:
+ * x -132.35..171.94, y -211.55..71.45. Scaled to how the portal is drawn.
+ */
+const PORTAL_ART = {
+  centreX: 19.8 * PORTAL_SCALE,
+  centreY: -70.05 * PORTAL_SCALE,
+  top: -211.55 * PORTAL_SCALE,
+};
+
+const PORTAL_WORLD = {
+  x: PORTAL_CENTRE_WORLD.x - PORTAL_ART.centreX,
+  y: PORTAL_CENTRE_WORLD.y - PORTAL_ART.centreY,
+};
 
 /**
  * The plate is not drawn on the a_DoorMarker point: it renders down-right of it,
@@ -76,25 +99,17 @@ const PLATE_ANCHOR_WORLD = { x: -459.75, y: 857.25 };
 const PLATE_RENDER_OFFSET = { x: 157, y: -53 };
 /** Half the plate's drawn height, so gaps are measured from its lower edge. */
 const PLATE_HALF_HEIGHT = 47;
-/** Clearance between the bottom of the plate and the top of the portal. */
-const PLATE_GAP_ABOVE_ART = 14;
-
 /**
- * a_Animation_Portal's artwork relative to its origin, from the sprite bounds:
- * x -132.35..171.94 (so its centre sits 19.80 right of the origin) and it reaches
- * 211.55 above the origin.
+ * Clearance between the bottom of the plate and the top of the portal. The
+ * artwork's top edge is the faint outer swirl rather than the solid glow, so a
+ * tight gap still reads as the plate sitting on the effect.
  */
-const PORTAL_ART = { centreX: 19.8, top: -211.55 };
+const PLATE_GAP_ABOVE_ART = 60;
 
-const PLATE_CENTRE = {
-  x: PLATE_ANCHOR_WORLD.x + PLATE_RENDER_OFFSET.x,
-  y: PLATE_ANCHOR_WORLD.y + PLATE_RENDER_OFFSET.y,
-};
-
-/** Centred under the plate, hanging just below it. */
-const PORTAL_WORLD = {
-  x: PLATE_CENTRE.x - PORTAL_ART.centreX,
-  y: PLATE_CENTRE.y + PLATE_HALF_HEIGHT + PLATE_GAP_ABOVE_ART - PORTAL_ART.top,
+/** Centred over the portal, clearing its top - so moving the portal moves the plate. */
+const PLATE_ANCHOR_WORLD = {
+  x: PORTAL_CENTRE_WORLD.x - PLATE_RENDER_OFFSET.x,
+  y: PORTAL_WORLD.y + PORTAL_ART.top - PLATE_GAP_ABOVE_ART - PLATE_HALF_HEIGHT - PLATE_RENDER_OFFSET.y,
 };
 
 function parseArgs(argv: string[]): { verify: boolean; out: string } {
@@ -188,8 +203,22 @@ function main(): void {
   inner.splice(
     insertAt,
     0,
-    buildPlaceObject2({ depth, charId: artId, x: portalLocal.x, y: portalLocal.y }),
-    buildPlaceObject2({ depth: depth + 1, charId: doorId, x: portalLocal.x, y: portalLocal.y }),
+    buildPlaceObject2({
+      depth,
+      charId: artId,
+      x: portalLocal.x,
+      y: portalLocal.y,
+      scaleX: PORTAL_SCALE,
+      scaleY: PORTAL_SCALE,
+    }),
+    buildPlaceObject2({
+      depth: depth + 1,
+      charId: doorId,
+      x: portalLocal.x,
+      y: portalLocal.y,
+      scaleX: PORTAL_SCALE,
+      scaleY: PORTAL_SCALE,
+    }),
     buildPlaceObject2({ depth: depth + 2, charId: markerId, x: plateLocal.x, y: plateLocal.y }),
   );
   home.tags[roomIndex] = rebuildSprite(roomTag, inner);
