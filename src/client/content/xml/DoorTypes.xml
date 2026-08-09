@@ -1628,4 +1628,16 @@
 		<RequiredMissions>AttackOfOpportunityHard</RequiredMissions>
 		<LockedMessage>^t Looks like one imparator muhafiz towers.=^t There is so much security here.</LockedMessage>
 	</DoorType>
+	<DoorType>
+		<MapName>CraftTown</MapName>
+		<DoorID>101</DoorID>
+		<TargetMapName>LegendsInn</TargetMapName>
+		<TargetDoorID>1</TargetDoorID>
+	</DoorType>
+	<DoorType>
+		<MapName>LegendsInn</MapName>
+		<DoorID>1</DoorID>
+		<TargetMapName>CraftTown</TargetMapName>
+		<TargetDoorID>101</TargetDoorID>
+	</DoorType>
 </DoorTypes>

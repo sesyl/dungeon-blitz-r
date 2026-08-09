@@ -6107,5 +6107,109 @@
       "a_Room_JCMini2_03",
       "a_Room_JCMini2_04"
     ]
+  },
+  "LegendsInn": {
+    "elements": [
+      "Earth",
+      "Ice"
+    ],
+    "enemyTypes": [
+      {
+        "enemyType": "CastleLizard1",
+        "count": 3
+      },
+      {
+        "enemyType": "DesolateDevourer",
+        "count": 3
+      },
+      {
+        "enemyType": "DreadPaladin",
+        "count": 3
+      },
+      {
+        "enemyType": "GladeSpider",
+        "count": 3
+      },
+      {
+        "enemyType": "ImpTrickster",
+        "count": 3
+      },
+      {
+        "enemyType": "InfusedSkeletonClub",
+        "count": 3
+      },
+      {
+        "enemyType": "SwampSkeletonClub",
+        "count": 3
+      },
+      {
+        "enemyType": "BanditTwinB",
+        "count": 2
+      },
+      {
+        "enemyType": "BoneFiend",
+        "count": 2
+      },
+      {
+        "enemyType": "GoblinDagger",
+        "count": 2
+      },
+      {
+        "enemyType": "GoblinHatchet",
+        "count": 2
+      },
+      {
+        "enemyType": "GoblinShamanHood",
+        "count": 2
+      },
+      {
+        "enemyType": "InfusedSkeletonSorcerer",
+        "count": 2
+      },
+      {
+        "enemyType": "PuckShadow",
+        "count": 2
+      },
+      {
+        "enemyType": "RedGhostKnight",
+        "count": 2
+      },
+      {
+        "enemyType": "RedGhostServant",
+        "count": 2
+      },
+      {
+        "enemyType": "ShadeWarrior",
+        "count": 2
+      },
+      {
+        "enemyType": "SwampSpider",
+        "count": 2
+      },
+      {
+        "enemyType": "DragonTemple",
+        "count": 1
+      },
+      {
+        "enemyType": "ImperialMagi",
+        "count": 1
+      },
+      {
+        "enemyType": "RedGhostLord",
+        "count": 1
+      }
+    ],
+    "source": "level-swf",
+    "rooms": [
+      "a_Room_LI_01",
+      "a_Room_LI_02",
+      "a_Room_LI_03",
+      "a_Room_LI_04",
+      "a_Room_LI_05",
+      "a_Room_LI_06",
+      "a_Room_LI_07",
+      "a_Room_LI_08",
+      "a_Room_LI_09"
+    ]
   }
 }

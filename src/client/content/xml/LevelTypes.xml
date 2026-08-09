@@ -999,4 +999,10 @@
 		<RankingsURL>event</RankingsURL>
 		<MusicLoop>D_dungeon_catacomb_v1.mp3</MusicLoop>
 	</LevelType>
+	<LevelType LevelName="LegendsInn">
+		<ZoneSet>JadeCity</ZoneSet>
+		<DisplayName>Legends' Inn</DisplayName>
+		<RankingsURL>legendsinn</RankingsURL>
+		<MusicLoop>OminousDungeonLongLoopWithSomeDrama_29.mp3</MusicLoop>
+	</LevelType>
 </LevelTypes>

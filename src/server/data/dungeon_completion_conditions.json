@@ -81,6 +81,7 @@
     "JC_Mini1": {"mode":"full-clear"},
     "JC_Mini1Hard": {"mode":"full-clear"},
     "JC_Mini2": {"mode":"full-clear"},
+    "LegendsInn": {"mode":"bosses","bossGroups":[["DragonTemple"]]},
     "JC_Mini2Hard": {"mode":"full-clear"},
     "JC_Mission1": {"mode":"bosses","bossGroups":[["ImperialChampion"]],"cutscene":{"requiredAfterObjectives":true},"clientAuthorityBosses":["ImperialChampion"]},
     "JC_Mission10": {"mode":"bosses","bossGroups":[["DragonTemple"]],"bossAliases":{"DragonTempleMarker":"DragonTemple"},"clientAuthorityBosses":["DragonTemple"]},
