@@ -1,9 +1,13 @@
 import { strict as assert } from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
+import { EntityState, EntityTeam } from '../core/Entity';
+import { GlobalState } from '../core/GlobalState';
 import { LevelConfig } from '../core/LevelConfig';
+import { getClientLevelScope } from '../core/LevelScope';
 import { MissionLoader } from '../data/MissionLoader';
 import { MissionID } from '../data/runtime';
+import { LevelHandler } from '../handlers/LevelHandler';
 import { MissionHandler } from '../handlers/MissionHandler';
 import { NpcHandler } from '../handlers/NpcHandler';
 import { BitBuffer } from '../network/protocol/bitBuffer';
@@ -25,9 +29,12 @@ type FakeClient = {
     characters: any[];
     sentPackets: Array<{ id: number; payload: Buffer }>;
     saveReasons: string[];
+    flushReasons: string[];
+    persistedBanditCounts: number[];
     send(id: number, payload: Buffer): void;
     sendBitBuffer(id: number, bb: BitBuffer): void;
     scheduleCharacterSave(reason: string): void;
+    flushCharacterSave(reason: string): Promise<void>;
 };
 
 function ensureDataLoaded(): void {
@@ -59,6 +66,8 @@ function createClient(): FakeClient {
     const character = createCharacter(MISSION_CLAIMED, MISSION_IN_PROGRESS);
     const sentPackets: Array<{ id: number; payload: Buffer }> = [];
     const saveReasons: string[] = [];
+    const flushReasons: string[] = [];
+    const persistedBanditCounts: number[] = [];
     return {
         userId: 11,
         clientEntID: 7654321,
@@ -67,6 +76,8 @@ function createClient(): FakeClient {
         characters: [character],
         sentPackets,
         saveReasons,
+        flushReasons,
+        persistedBanditCounts,
         send(id: number, payload: Buffer): void {
             sentPackets.push({ id, payload: Buffer.from(payload) });
         },
@@ -75,8 +86,27 @@ function createClient(): FakeClient {
         },
         scheduleCharacterSave(reason: string): void {
             saveReasons.push(reason);
+        },
+        async flushCharacterSave(reason: string): Promise<void> {
+            flushReasons.push(reason);
+            persistedBanditCounts.push(
+                Number(character.missions[String(MissionID.ClearTheBandits)]?.currCount ?? 0)
+            );
         }
     };
+}
+
+function buildDeadStatePayload(entityId: number): Buffer {
+    const bb = new BitBuffer(false);
+    bb.writeMethod4(entityId);
+    bb.writeMethod45(0);
+    bb.writeMethod45(0);
+    bb.writeMethod45(0);
+    bb.writeMethod6(EntityState.DEAD, 2);
+    for (let index = 0; index < 6; index += 1) {
+        bb.writeMethod15(false);
+    }
+    return bb.toBuffer();
 }
 
 function testMissionDefinitionAndPrerequisite(): void {
@@ -224,9 +254,9 @@ function testDialogueAdvancesOneBubblePerClickAndLoops(): void {
     ]);
 }
 
-async function testOnlyHumanBanditsCount(): Promise<void> {
+async function testHumanBanditsCountAcrossDungeons(): Promise<void> {
     ensureDataLoaded();
-    const humanBandits = [
+    const felbridgeHumanBandits = [
         'BanditRogue',
         'BanditRogue2',
         'BanditGreatWarrior',
@@ -245,7 +275,7 @@ async function testOnlyHumanBanditsCount(): Promise<void> {
         'BanditBossHard'
     ];
 
-    for (const enemyName of humanBandits) {
+    for (const enemyName of felbridgeHumanBandits) {
         const client = createClient();
         await MissionHandler.handleEnemyDefeatMissionProgress(client as never, { EntName: enemyName });
         assert.equal(
@@ -255,36 +285,140 @@ async function testOnlyHumanBanditsCount(): Promise<void> {
         );
     }
 
+    const banditProblemAndSvaggBandits = [
+        { level: 'BT_Mission1', enemyName: 'BanditTwinA' },
+        { level: 'BT_Mission1', enemyName: 'BanditTwinB' },
+        { level: 'BT_Mission1Hard', enemyName: 'BanditTwinAHard' },
+        { level: 'BT_Mission1Hard', enemyName: 'BanditTwinBHard' },
+        { level: 'BT_Mission2', enemyName: 'BanditBoss' },
+        { level: 'BT_Mission2', enemyName: 'BanditGreatRogue' },
+        { level: 'BT_Mission2', enemyName: 'BanditRogue' },
+        { level: 'BT_Mission2', enemyName: 'BanditRogue2' },
+        { level: 'BT_Mission2Hard', enemyName: 'BanditBossHard' },
+        { level: 'BT_Mission2Hard', enemyName: 'BanditGreatRogueHard' },
+        { level: 'BT_Mission2Hard', enemyName: 'BanditRogueHard' },
+        { level: 'BT_Mission2Hard', enemyName: 'BanditRogue2Hard' }
+    ];
+
+    for (const { level, enemyName } of banditProblemAndSvaggBandits) {
+        const client = createClient();
+        client.currentLevel = level;
+        client.character.CurrentLevel.name = level;
+        await MissionHandler.handleEnemyDefeatMissionProgress(client as never, { EntName: enemyName });
+        assert.equal(
+            client.character.missions[String(MissionID.ClearTheBandits)].currCount,
+            1,
+            `${enemyName} did not count in Bandit Problem or Svagg's Last Stand (${level})`
+        );
+    }
+
     for (const enemyName of [
         'BanditImp',
+        'BanditImp2',
         'BanditSpider',
+        'BanditSpider2',
         'BanditGreatSpider',
         'BanditImpHard',
+        'BanditImp2Hard',
         'BanditSpiderHard',
+        'BanditSpider2Hard',
         'BanditGreatSpiderHard',
-        'RisenBandit'
+        'RisenBandit',
+        'RisenBanditHard',
+        'GriffonStar',
+        'GriffonStarHard'
     ]) {
         const client = createClient();
+        client.currentLevel = 'BT_Mission1';
+        client.character.CurrentLevel.name = 'BT_Mission1';
         await MissionHandler.handleEnemyDefeatMissionProgress(client as never, { EntName: enemyName });
         assert.equal(
             client.character.missions[String(MissionID.ClearTheBandits)].currCount,
             0,
-            `${enemyName} incorrectly counted as a normal Felbridge human bandit`
+            `${enemyName} incorrectly counted as a dungeon human bandit`
         );
     }
 
-    const dungeonClient = createClient();
-    dungeonClient.currentLevel = 'BT_Mission2';
-    dungeonClient.character.CurrentLevel.name = 'BT_Mission2';
+    const unrelatedDungeonClient = createClient();
+    unrelatedDungeonClient.currentLevel = 'JC_Mission2';
+    unrelatedDungeonClient.character.CurrentLevel.name = 'JC_Mission2';
     await MissionHandler.handleEnemyDefeatMissionProgress(
-        dungeonClient as never,
-        { EntName: 'BanditRogueHard' }
+        unrelatedDungeonClient as never,
+        { EntName: 'BanditRogue' }
     );
     assert.equal(
-        dungeonClient.character.missions[String(MissionID.ClearTheBandits)].currCount,
-        1,
-        'human bandits killed inside the Felbridge dungeon did not advance the mission'
+        unrelatedDungeonClient.character.missions[String(MissionID.ClearTheBandits)].currCount,
+        0,
+        'an unrelated dungeon advanced Clear the Bandits'
     );
+}
+
+async function testDungeonBanditProgressPersistsBeforeImmediateExit(): Promise<void> {
+    const client = createClient();
+    client.currentLevel = 'BT_Mission2';
+    client.character.CurrentLevel.name = client.currentLevel;
+    await MissionHandler.handleEnemyDefeatMissionProgress(client as never, { EntName: 'BanditRogue' });
+
+    assert.deepEqual(client.flushReasons, ['dungeon bandit mission progress']);
+    assert.deepEqual(
+        client.persistedBanditCounts,
+        [1],
+        'the dungeon bandit count was not flushed before an immediate exit could load the character'
+    );
+}
+
+function testCanonicalDungeonBanditDeathCountsBeforeExit(): void {
+    const client = createClient() as FakeClient & Record<string, any>;
+    const entityId = 7_654_322;
+    client.token = 7_654_321;
+    client.currentLevel = 'BT_Mission2';
+    client.character.CurrentLevel.name = client.currentLevel;
+    client.levelInstanceId = 'clear-bandits-canonical-death';
+    client.currentRoomId = 1;
+    client.playerSpawned = true;
+    client.entities = new Map<number, any>();
+    client.knownEntityIds = new Set<number>();
+    client.entityIdAliases = new Map<number, number>();
+    client.sharedEntityRemoteUpdateDeferredIds = new Set<number>();
+    client.socket = { write(): boolean { return true; } };
+
+    const bandit = {
+        id: entityId,
+        name: 'BanditGreatRogue',
+        EntName: 'BanditGreatRogue',
+        characterName: ',BanditGreatRogue',
+        clientSpawned: true,
+        isPlayer: false,
+        team: EntityTeam.ENEMY,
+        roomId: 1,
+        ownerToken: client.token,
+        combatAuthorityToken: client.token,
+        x: 0,
+        y: 0,
+        v: 0,
+        hp: 0,
+        maxHp: 100,
+        dead: true,
+        destroyed: true,
+        entState: EntityState.ACTIVE
+    };
+    client.entities.set(entityId, bandit);
+
+    const levelScope = getClientLevelScope(client as never);
+    GlobalState.levelEntities.set(levelScope, new Map([[entityId, bandit]]));
+    GlobalState.sessionsByToken.set(client.token, client as never);
+
+    try {
+        LevelHandler.handleEntityIncrementalUpdate(client as never, buildDeadStatePayload(entityId));
+        assert.equal(
+            client.character.missions[String(MissionID.ClearTheBandits)].currCount,
+            1,
+            'a canonical dungeon bandit death returned before Mission 11 progress was applied'
+        );
+    } finally {
+        GlobalState.levelEntities.delete(levelScope);
+        GlobalState.sessionsByToken.delete(client.token);
+    }
 }
 
 async function testTwentiethKillCompletesMission(): Promise<void> {
@@ -335,7 +469,9 @@ Promise.resolve()
     .then(testMissionExistsInLooseAndEmbeddedClientData)
     .then(testClientPacketHidesOnlyUnsafeMissionSlot)
     .then(testDialogueAdvancesOneBubblePerClickAndLoops)
-    .then(testOnlyHumanBanditsCount)
+    .then(testHumanBanditsCountAcrossDungeons)
+    .then(testDungeonBanditProgressPersistsBeforeImmediateExit)
+    .then(testCanonicalDungeonBanditDeathCountsBeforeExit)
     .then(testTwentiethKillCompletesMission)
     .then(testTrackerStateResyncsWithoutUsingPlayerDataSlot)
     .then(() => {

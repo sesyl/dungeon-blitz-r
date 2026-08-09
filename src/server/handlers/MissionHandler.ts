@@ -181,6 +181,12 @@ export class MissionHandler {
         'BanditTwinBHard',
         'BanditBossHard'
     ]);
+    private static readonly CLEAR_THE_BANDITS_DUNGEON_LEVELS = new Set([
+        'BT_Mission1',
+        'BT_Mission1Hard',
+        'BT_Mission2',
+        'BT_Mission2Hard'
+    ]);
     private static readonly SWAMP_SPIDER_KILL_NAMES = new Set([
         'SwampSpider',
         'SwampSpider2',
@@ -1299,6 +1305,7 @@ export class MissionHandler {
 
         const missions = MissionHandler.getMissionStateMap(client.character);
         let didMutate = false;
+        let shouldPersistDungeonBanditProgressImmediately = false;
 
         for (const [missionIdText, rawEntry] of Object.entries(missions)) {
             const missionId = Number(missionIdText);
@@ -1343,10 +1350,22 @@ export class MissionHandler {
                 MissionHandler.sendMissionComplete(client, missionId);
             }
             didMutate = true;
+            if (
+                missionId === MissionID.ClearTheBandits &&
+                LevelConfig.isDungeonLevel(currentLevel)
+            ) {
+                shouldPersistDungeonBanditProgressImmediately = true;
+            }
         }
 
         if (didMutate) {
             MissionHandler.saveCharacter(client, 'enemy kill mission progress');
+            if (
+                shouldPersistDungeonBanditProgressImmediately &&
+                typeof client.flushCharacterSave === 'function'
+            ) {
+                await client.flushCharacterSave('dungeon bandit mission progress');
+            }
         }
     }
 
@@ -3777,6 +3796,14 @@ export class MissionHandler {
         currentLevel: string
     ): boolean {
         const targetNames = MissionHandler.KILL_PROGRESS_TARGETS[missionId];
+        if (missionId === MissionID.ClearTheBandits) {
+            const isDungeon = LevelConfig.isDungeonLevel(currentLevel);
+            return (
+                (!isDungeon || MissionHandler.CLEAR_THE_BANDITS_DUNGEON_LEVELS.has(currentLevel)) &&
+                Boolean(targetNames && defeatedNames.some((name) => targetNames.has(name)))
+            );
+        }
+
         if (targetNames && defeatedNames.some((name) => targetNames.has(name))) {
             return true;
         }

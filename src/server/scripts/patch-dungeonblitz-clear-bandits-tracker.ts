@@ -831,18 +831,21 @@ function patchSwf(swfPath: string): void {
     ensureBackup(swfPath);
     const patched = applyPatchesToBody(ctx.body, patches);
     writeSwf(ctx, patched.body, patched.delta);
-    verifySwf(swfPath);
+    verifySwf(swfPath, false);
     console.log(`${path.basename(swfPath)} patched with the Clear the Bandits HUD tracker.`);
 }
 
-function verifySwf(swfPath: string): void {
+function verifySwf(swfPath: string, requireNumericProgress = true): void {
     const { ctx, abc, body } = findTrackerBody(swfPath);
     const code = ctx.body.subarray(body.codeStart, body.codeStart + body.codeLen);
     if (!hasTrackerPatch(abc, code)) {
         throw new PatchError(`${path.basename(swfPath)} is missing the Clear the Bandits tracker patch.`);
     }
-    if (customTrackerShowCalls(abc, code).length !== 1) {
-        throw new PatchError(`${path.basename(swfPath)} has load-unsafe numeric tracker visibility.`);
+    const showCallCount = customTrackerShowCalls(abc, code).length;
+    if (showCallCount < 1 || (requireNumericProgress && showCallCount !== 2)) {
+        throw new PatchError(
+            `${path.basename(swfPath)} is missing the Clear the Bandits numeric progress visibility.`
+        );
     }
     verifyBranchTargets(code, 'Clear the Bandits HUD tracker');
     console.log(`${path.basename(swfPath)} Clear the Bandits tracker verify ok.`);
@@ -879,7 +882,8 @@ if (verify) {
     syncClientRevision(swfPath, true);
 } else {
     patchSwf(swfPath);
-    removeLoadUnsafeTrackerCountVisibility(swfPath);
+    patchTrackerCountVisibility(swfPath);
     removeLoadUnsafeMissionMarkerMetadata(swfPath);
+    verifySwf(swfPath);
     syncClientRevision(swfPath, false);
 }
