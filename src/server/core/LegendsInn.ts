@@ -65,12 +65,26 @@ const PORTAL_ENTITY_ID_BASE = 27_000_000;
 export class LegendsInn {
     private static stagesByLevel: Map<string, LegendsInnStageInfo> = new Map();
     private static portalEntName = 'LegendsInnPortal';
-    /** Level scopes whose boss is down. Cleared when the scope's run is reset. */
+    /** Level scopes whose way onward is open. Cleared when the scope's run is reset. */
     private static openScopes: Set<string> = new Set();
+    /** Which of a scope's bosses have died, and which have had their bodies removed. */
+    private static defeatedBosses: Map<string, Set<string>> = new Map();
+    private static destroyedBosses: Map<string, Set<string>> = new Map();
+    private static fallbackTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
+    /**
+     * How long the last boss death waits for the body to be removed before the
+     * portal opens anyway. Long enough for any death animation and fade, short
+     * enough that a party never wonders whether the run is broken.
+     */
+    private static readonly BODY_GRACE_MS = 20_000;
 
     static load(dataDir: string): void {
         LegendsInn.stagesByLevel.clear();
         LegendsInn.openScopes.clear();
+        for (const scopeKey of [...LegendsInn.defeatedBosses.keys(), ...LegendsInn.destroyedBosses.keys()]) {
+            LegendsInn.clearPendingBossState(scopeKey);
+        }
 
         const filePath = path.join(dataDir, 'legends_inn_stages.json');
         if (!fs.existsSync(filePath)) {
@@ -107,6 +121,10 @@ export class LegendsInn {
 
     static isStageLevel(levelName: string | null | undefined): boolean {
         return LegendsInn.getStage(levelName) !== null;
+    }
+
+    static getStages(): LegendsInnStageInfo[] {
+        return [...LegendsInn.stagesByLevel.values()];
     }
 
     /**
@@ -170,30 +188,103 @@ export class LegendsInn {
     }
 
     /**
-     * A hostile died somewhere. Opens the portal if it was this stage's boss.
+     * The stage boss this entity is, or null.
      *
-     * The name is compared the way the rest of the server compares entity names -
+     * Names are compared the way the rest of the server compares entity names -
      * case- and punctuation-insensitively - because a hostile reaches here having
-     * been round-tripped through the client's cue, and a stage may legitimately
-     * have more than one boss (Bridgetown's twins), in which case any of them
-     * opening the way is the authored behaviour: the room is clear either way.
+     * been round-tripped through the client's cue.
      */
-    static noteEntityDefeated(client: Client, entity: unknown): void {
-        const stage = LegendsInn.getStage(client?.currentLevel);
-        if (!stage) {
-            return;
-        }
-
+    private static matchBoss(stage: LegendsInnStageInfo, entity: unknown): string | null {
         const name = LegendsInn.normalizeName(
             (entity as Record<string, unknown> | null)?.name ??
             (entity as Record<string, unknown> | null)?.EntName ??
             (entity as Record<string, unknown> | null)?.entName
         );
-        if (!name || !stage.bosses.some((boss) => LegendsInn.normalizeName(boss) === name)) {
+        if (!name) {
+            return null;
+        }
+        return stage.bosses.find((boss) => LegendsInn.normalizeName(boss) === name) ?? null;
+    }
+
+    /**
+     * A hostile died. Records it, and arms the fallback that opens the way anyway.
+     *
+     * Death is *not* what opens the portal - see noteEntityDestroyed. But a body
+     * that is never destroyed must not seal the run in: the destroy packet is the
+     * client's to send, and a client that dies, disconnects or drops the packet
+     * would otherwise leave the party in a dungeon with no exit. So the last boss
+     * death starts a grace period, and whichever arrives first wins.
+     *
+     * Every boss the stage lists has to fall, not just one: Bridgetown's twins are
+     * two boss cues in one room and the fight is not over until both are down.
+     */
+    static noteEntityDefeated(client: Client, entity: unknown): void {
+        const stage = LegendsInn.getStage(client?.currentLevel);
+        const boss = stage ? LegendsInn.matchBoss(stage, entity) : null;
+        if (!stage || !boss) {
             return;
         }
 
-        LegendsInn.openPortal(getClientLevelScope(client), stage);
+        const scopeKey = String(getClientLevelScope(client) ?? '');
+        if (!scopeKey || LegendsInn.openScopes.has(scopeKey)) {
+            return;
+        }
+
+        const defeated = LegendsInn.defeatedBosses.get(scopeKey) ?? new Set<string>();
+        defeated.add(boss);
+        LegendsInn.defeatedBosses.set(scopeKey, defeated);
+        if (defeated.size < stage.bosses.length || LegendsInn.fallbackTimers.has(scopeKey)) {
+            return;
+        }
+
+        console.log(`[LegendsInn] ${stage.levelName} boss down in ${scopeKey}; waiting for the body`);
+        const timer = setTimeout(() => {
+            LegendsInn.fallbackTimers.delete(scopeKey);
+            console.log(`[LegendsInn] ${stage.levelName} portal opened on the grace period (no destroy seen)`);
+            LegendsInn.openPortal(scopeKey, stage);
+        }, LegendsInn.BODY_GRACE_MS);
+        if (typeof timer.unref === 'function') {
+            timer.unref();
+        }
+        LegendsInn.fallbackTimers.set(scopeKey, timer);
+    }
+
+    /**
+     * A body was removed from the level. Opens the portal once the boss is gone.
+     *
+     * This is the signal the dungeon is written around: the client sends it when
+     * the death animation has finished playing and the corpse has left the room,
+     * so the portal fades in on an empty floor rather than on top of a boss that
+     * is still falling over.
+     *
+     * Only counted for a boss the run has already seen die. A body is also
+     * destroyed when it simply leaves a client's view - walking out of the room,
+     * unloading the level - and a portal must never open because somebody walked
+     * away from a boss that is still alive.
+     */
+    static noteEntityDestroyed(client: Client, entity: unknown): void {
+        const stage = LegendsInn.getStage(client?.currentLevel);
+        const boss = stage ? LegendsInn.matchBoss(stage, entity) : null;
+        if (!stage || !boss) {
+            return;
+        }
+
+        const scopeKey = String(getClientLevelScope(client) ?? '');
+        if (!scopeKey || LegendsInn.openScopes.has(scopeKey)) {
+            return;
+        }
+        if (!LegendsInn.defeatedBosses.get(scopeKey)?.has(boss)) {
+            return;
+        }
+
+        const gone = LegendsInn.destroyedBosses.get(scopeKey) ?? new Set<string>();
+        gone.add(boss);
+        LegendsInn.destroyedBosses.set(scopeKey, gone);
+        if (gone.size < stage.bosses.length) {
+            return;
+        }
+
+        LegendsInn.openPortal(scopeKey, stage);
     }
 
     /**
@@ -209,6 +300,7 @@ export class LegendsInn {
         }
 
         LegendsInn.openScopes.add(scopeKey);
+        LegendsInn.clearPendingBossState(scopeKey);
         console.log(`[LegendsInn] ${stage.levelName} portal opened for scope ${scopeKey}`);
 
         for (const session of GlobalState.getSessionsInLevelScope(scopeKey)) {
@@ -240,7 +332,20 @@ export class LegendsInn {
      * walk straight past its boss.
      */
     static resetScope(levelScope: string | null | undefined): void {
-        LegendsInn.openScopes.delete(String(levelScope ?? ''));
+        const scopeKey = String(levelScope ?? '');
+        LegendsInn.openScopes.delete(scopeKey);
+        LegendsInn.clearPendingBossState(scopeKey);
+    }
+
+    /** Drops a scope's half-finished boss bookkeeping and stops its grace period. */
+    private static clearPendingBossState(levelScope: string): void {
+        LegendsInn.defeatedBosses.delete(levelScope);
+        LegendsInn.destroyedBosses.delete(levelScope);
+        const timer = LegendsInn.fallbackTimers.get(levelScope);
+        if (timer) {
+            clearTimeout(timer);
+            LegendsInn.fallbackTimers.delete(levelScope);
+        }
     }
 
     /** Drops every scope of a level. Used when the last player leaves an instance. */
@@ -249,9 +354,14 @@ export class LegendsInn {
         if (!normalized) {
             return;
         }
-        for (const scopeKey of [...LegendsInn.openScopes]) {
+        const scopeKeys = new Set([
+            ...LegendsInn.openScopes,
+            ...LegendsInn.defeatedBosses.keys(),
+            ...LegendsInn.destroyedBosses.keys()
+        ]);
+        for (const scopeKey of scopeKeys) {
             if (getScopeLevelName(scopeKey) === normalized) {
-                LegendsInn.openScopes.delete(scopeKey);
+                LegendsInn.resetScope(scopeKey);
             }
         }
     }
