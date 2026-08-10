@@ -215,6 +215,12 @@ export class Client {
     public dungeonRun: DungeonRunStats | null = null;
     public pendingMissionTurnIns: Set<number> = new Set();
     public authoritativeMaxHp: number = 100;
+    /**
+     * Defense, as the client reports it on packet 0xFC. Zero until the patched client sends
+     * it -- a browser can serve a cached SWF older than the server, so nothing may assume it
+     * is populated.
+     */
+    public authoritativeArmorClass: number = 0;
     /** Last mana the client reported over packet 0xCB. Diagnostic only -- never trusted. */
     public lastReportedMana: number = 0;
     public authoritativeCurrentHp: number = 100;
@@ -592,6 +598,7 @@ export class Client {
         this.dungeonRun = null;
         this.pendingMissionTurnIns.clear();
         this.authoritativeMaxHp = 100;
+        this.authoritativeArmorClass = 0;
         this.authoritativeCurrentHp = 100;
         this.combatStatsDirty = false;
         this.allowDirtyCombatStatsRegen = false;

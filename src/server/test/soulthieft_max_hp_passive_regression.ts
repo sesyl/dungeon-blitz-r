@@ -73,10 +73,11 @@ function testDerivesThePoolWhenTheEntityDoesNotCarryOne(): void {
 const sentinelBonusOf = (session: any, powerId: number, damage: number): number =>
     (CombatHandler as any).getSentinelMaxHpBonus(session, powerId, damage);
 
-function sentinel(maxHp: number): any {
+function sentinel(maxHp: number, armorClass: number = 0): any {
     return {
         character: { name: 'MaxPally', MasterClass: MasterClassID.Sentinel },
-        authoritativeMaxHp: maxHp
+        authoritativeMaxHp: maxHp,
+        authoritativeArmorClass: armorClass
     };
 }
 
@@ -98,6 +99,21 @@ function testSentinelMeleeCarriesHealthPool(): void {
     for (const powerId of [MACE_MELEE, AXE_MELEE, PUNCH_MELEE, SF_MELEE_1, SF_MELEE_COMBO_1]) {
         assert.equal(sentinelBonusOf(sentinel(60_000), powerId, 2000), 6, `power ${powerId} must carry the passive`);
     }
+}
+
+// The Defense half. It reads the client-declared armorClass that
+// patch-dungeonblitz-combat-stats-armor appends to packet 0xFC.
+function testSentinelMeleeCarriesDefense(): void {
+    assert.equal(sentinelBonusOf(sentinel(60_000, 3000), SWORD_MELEE, 2000), 6 + 3);
+    assert.equal(sentinelBonusOf(sentinel(0, 3000), SWORD_MELEE, 2000), 3);
+}
+
+// A client whose cached SWF predates the packet change sends no Defense at all. The Health
+// half must still land rather than the whole passive going quiet.
+function testSentinelPassiveSurvivesAnUnpatchedClient(): void {
+    const stale = sentinel(60_000);
+    delete stale.authoritativeArmorClass;
+    assert.equal(sentinelBonusOf(stale, SWORD_MELEE, 2000), 6);
 }
 
 // The bolt is the bug this issue reported: a melee discipline's passive was firing on its
@@ -151,6 +167,8 @@ function testJusticarDegenerateStatsAddNothing(): void {
 
 function run(): void {
     testSentinelMeleeCarriesHealthPool();
+    testSentinelMeleeCarriesDefense();
+    testSentinelPassiveSurvivesAnUnpatchedClient();
     testSentinelBonusIsMeleeOnly();
     testSentinelBonusIsSentinelOnly();
     testJusticarScalesTheHitByExpertise();

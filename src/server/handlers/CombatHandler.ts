@@ -4732,17 +4732,18 @@ export class CombatHandler {
      * handed it to every Justicar and Templar as well.
      *
      * It used to ride ConcussionBolt, the discipline's *ranged* attack, at ten times this
-     * rate (issue #670).
+     * rate and with no Defense term at all (issue #670).
      *
-     * The Defense half of the passive is not here, and cannot be: the client never tells the
-     * server its armorClass. 0xFC carries meleeDamage, magicDamage and maxHP and nothing
-     * else, and the one place that could add it -- CombatState.method_1393, where Holy Smash
-     * and Retribution already read armorClass -- is closed to us: the class carries raw
-     * bytecode patches that FFDec can no longer decompile, so its tail comes back as a bare
-     * `§§goto` and a source recompile would delete it. See
-     * patch-dungeonblitz-templar-talent-effects.
+     * The Defense half needed the client to start telling the server its Defense, which it
+     * never had: patch-dungeonblitz-combat-stats-armor appends armorClass to packet 0xFC.
+     * That is why the term reads off the session rather than off anything the hit carries,
+     * and why it is written to survive a zero -- a browser can serve a cached SWF older than
+     * the server, and such a client sends the packet without the field. When that happens the
+     * Health half still lands and the Defense half is simply absent, which is the failure
+     * mode worth having.
      */
     private static readonly SENTINEL_MAX_HP_RATE = 0.0001;
+    private static readonly SENTINEL_ARMOR_RATE = 0.001;
     private static readonly SENTINEL_MELEE_POWER_NAMES = [
         'SwordMelee',
         'MaceMelee',
@@ -4810,12 +4811,14 @@ export class CombatHandler {
         }
 
         const damage = Math.max(0, Math.round(Number(baseDamage) || 0));
-        const maxHp = Math.max(0, Math.round(Number(sourceSession.authoritativeMaxHp ?? 0) || 0));
-        if (damage <= 0 || maxHp <= 0) {
+        if (damage <= 0) {
             return 0;
         }
 
-        return Math.round(maxHp * CombatHandler.SENTINEL_MAX_HP_RATE);
+        const maxHp = Math.max(0, Math.round(Number(sourceSession.authoritativeMaxHp ?? 0) || 0));
+        const armorClass = Math.max(0, Math.round(Number(sourceSession.authoritativeArmorClass ?? 0) || 0));
+        return Math.round(maxHp * CombatHandler.SENTINEL_MAX_HP_RATE)
+            + Math.round(armorClass * CombatHandler.SENTINEL_ARMOR_RATE);
     }
 
     /**

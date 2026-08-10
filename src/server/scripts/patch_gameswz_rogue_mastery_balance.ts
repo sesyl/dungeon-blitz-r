@@ -290,7 +290,7 @@ const SIGNATURE_DESCRIPTIONS = new Map<string, [string, string]>([
     "ConcussionBolt",
     [
       "The Sentinel's ranged energy attacks.",
-      "The Sentinel's ranged energy attacks. Sentinel passive: your melee attacks also strike for 0.01% of your maximum Health.",
+      "The Sentinel's ranged energy attacks. Sentinel passive: your melee attacks also strike for 0.01% of your maximum Health and 0.1% of your Defense.",
     ],
   ],
   [
@@ -443,13 +443,12 @@ const TEXT_MIGRATIONS: Array<{ power: RegExp; from: string; to: string }> = [
     to: "Templar passive: your ranged attacks arc to up to 3 more enemies.",
   },
   {
-    // The Sentinel passive moved off the bolt and onto the melee swing, and its rate moved
-    // with it: 0.1% of max HP became 0.01% (issue #670). The Defense term the same issue asks
-    // for is deliberately not claimed here -- the server cannot see armorClass and the client
-    // method that can is closed to patching, so promising it would be promising nothing.
+    // The Sentinel passive moved off the bolt and onto the melee swing, and its rates moved
+    // with it: 0.1% of max HP became 0.01%, plus a Defense term the old one did not have
+    // (issue #670).
     power: /^ConcussionBolt\d*$/,
     from: "Sentinel passive: every bolt also strikes for 0.1% of your maximum Health.",
-    to: "Sentinel passive: your melee attacks also strike for 0.01% of your maximum Health.",
+    to: "Sentinel passive: your melee attacks also strike for 0.01% of your maximum Health and 0.1% of your Defense.",
   },
 ];
 
