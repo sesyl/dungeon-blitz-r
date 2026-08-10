@@ -1,0 +1,294 @@
+{
+  "portalEnt": "LegendsInnPortal",
+  "stages": [
+    {
+      "levelName": "LegendsInn1Hard",
+      "region": "Wolf's End",
+      "stage": 1,
+      "exitDoorId": 2,
+      "returnDoorId": 1,
+      "monsterBonusLevels": 41,
+      "portal": {
+        "x": 24531,
+        "y": 1865
+      },
+      "bosses": [
+        "DogChieftainHard"
+      ],
+      "enemies": [
+        "DogChieftainHard",
+        "DogPackmate2Hard",
+        "SwampSkeletonSorcererHard",
+        "CastleLizard1Hard",
+        "DogAlphaHard",
+        "GreaterSkeletonSorcererHard",
+        "DogRogueHard",
+        "GreatLizardHeavy2Hard",
+        "MeylourMage2Hard",
+        "CastleLizard2Hard",
+        "DogPackmateHard",
+        "MeylourMageHard",
+        "CastleLizard3Hard"
+      ]
+    },
+    {
+      "levelName": "LegendsInn2Hard",
+      "region": "Blackrose Mire",
+      "stage": 2,
+      "exitDoorId": 2,
+      "returnDoorId": 1,
+      "monsterBonusLevels": 46,
+      "portal": {
+        "x": 15302,
+        "y": 4676
+      },
+      "bosses": [
+        "MeylourBossMageHard"
+      ],
+      "enemies": [
+        "MeylourBossMageHard",
+        "InfusedSkeletonSorcererHard",
+        "GreaterSkeletonClubHard",
+        "BanditRogue2Hard",
+        "SkeletonSorcererHard",
+        "GreaterSkeletonEliteHard",
+        "BanditRogueHard",
+        "AshenDryad2Hard",
+        "GreaterSkeletonFistHard",
+        "JackalRogueHard",
+        "AshenDryadHard",
+        "GreaterSkeletonSwordHard"
+      ]
+    },
+    {
+      "levelName": "LegendsInn3Hard",
+      "region": "Bridgetown",
+      "stage": 3,
+      "exitDoorId": 2,
+      "returnDoorId": 1,
+      "monsterBonusLevels": 41,
+      "portal": {
+        "x": 9903,
+        "y": 1932
+      },
+      "bosses": [
+        "DemonMalignerHard",
+        "JackalChieftainHard"
+      ],
+      "enemies": [
+        "DemonMalignerHard",
+        "JackalChieftainHard",
+        "GreaterSkeletonRogueHard",
+        "GreatLizardMasterHard",
+        "SpiritAshenDryadHard",
+        "CastleLizard1Hard",
+        "InfusedSkeletonClubHard",
+        "ShadeMage2Hard",
+        "SpiritDogRogueHard",
+        "InfusedSkeletonEliteHard"
+      ]
+    },
+    {
+      "levelName": "LegendsInn4Hard",
+      "region": "Cemetery Hill",
+      "stage": 4,
+      "exitDoorId": 3,
+      "returnDoorId": 1,
+      "monsterBonusLevels": 38,
+      "portal": {
+        "x": 5656,
+        "y": 5183
+      },
+      "bosses": [
+        "LionLordHard"
+      ],
+      "enemies": [
+        "LionLordHard",
+        "CougarWarrior2Hard",
+        "CastleLizard1Hard",
+        "ShadeMageHard",
+        "CougarWarriorHard",
+        "OutlanderRogueHard",
+        "ImperialMagiHard",
+        "DeepLizardWarriorHard",
+        "CastleLizard2Hard",
+        "ImperialMagi2Hard",
+        "CougarGreater2Hard",
+        "CastleLizard3Hard",
+        "ShadeSummonerHard",
+        "LionPridemate2Hard",
+        "BrigandCutthroatHard",
+        "BrigandCryomancerHard",
+        "LionPridemateHard",
+        "BrigandCutthroat2Hard",
+        "ShadeSummoner2Hard",
+        "CougarGreaterHard",
+        "GreaterDemonMalignerHard",
+        "DreamInfusedSkeletonSorcererHard",
+        "DeepLizardWarrior2Hard",
+        "ShadowPuppetHard",
+        "MeylourMage2Hard",
+        "LionAlpha2Hard",
+        "BanditRogue2Hard"
+      ]
+    },
+    {
+      "levelName": "LegendsInn5Hard",
+      "region": "Stormshard",
+      "stage": 5,
+      "exitDoorId": 2,
+      "returnDoorId": 1,
+      "monsterBonusLevels": 38,
+      "portal": {
+        "x": 18263,
+        "y": 4141
+      },
+      "bosses": [
+        "AshenDryadWizardHard"
+      ],
+      "enemies": [
+        "AshenDryadWizardHard",
+        "MeylourEnthralledMageHard",
+        "JackalRogueHard",
+        "JackalPackmate2Hard",
+        "MeylourMage2Hard",
+        "CastleLizard1Hard",
+        "JackalPackmateHard",
+        "MeylourMageHard",
+        "BanditRogue2Hard",
+        "JackalAlphaHard",
+        "GreaterSkeletonSorcererHard",
+        "BanditRogueHard",
+        "CastleLizardHeavy1Hard",
+        "SpiritAshenDryadHard",
+        "CastleLizard2Hard"
+      ]
+    },
+    {
+      "levelName": "LegendsInn6Hard",
+      "region": "Emerald Glades",
+      "stage": 6,
+      "exitDoorId": 2,
+      "returnDoorId": 1,
+      "monsterBonusLevels": 29,
+      "portal": {
+        "x": 15930,
+        "y": 2915
+      },
+      "bosses": [
+        "OutlanderBossHard"
+      ],
+      "enemies": [
+        "OutlanderBossHard",
+        "CastleLizardMasterHard",
+        "SpiritAshenDryadHard",
+        "SpiritDogRogueHard",
+        "CastleLizardHeavy2Hard",
+        "ShadeMage2Hard",
+        "CastleLizard1Hard",
+        "CastleLizardBanner1Hard",
+        "ShadeMageHard",
+        "CastleLizard2Hard",
+        "CastleLizardBanner2Hard",
+        "ImperialMagiHard",
+        "CastleLizard3Hard",
+        "SpiritCougarWarriorHard",
+        "ImperialMagi2Hard",
+        "OutlanderRogueHard"
+      ]
+    },
+    {
+      "levelName": "LegendsInn7Hard",
+      "region": "Deepgard Castle",
+      "stage": 7,
+      "exitDoorId": 4,
+      "returnDoorId": 1,
+      "monsterBonusLevels": 36,
+      "portal": {
+        "x": 20074,
+        "y": 160
+      },
+      "bosses": [
+        "FirePriestWizardHard"
+      ],
+      "enemies": [
+        "FirePriestWizardHard",
+        "MeylourGreatWizardHard",
+        "ShadeWarriorHard",
+        "ScarabRogueHard",
+        "AshenDryad2Hard",
+        "DeepLizardHeavy2Hard",
+        "OutlanderRogueHard",
+        "AshenDryadHard",
+        "DeepLizardHeavyHard",
+        "BrigandCutthroatHard",
+        "ShadeMage2Hard",
+        "InfusedSkeletonSwordHard",
+        "BrigandCutthroat2Hard",
+        "ShadeMageHard"
+      ]
+    },
+    {
+      "levelName": "LegendsInn8Hard",
+      "region": "Shazari Desert",
+      "stage": 8,
+      "exitDoorId": 2,
+      "returnDoorId": 1,
+      "monsterBonusLevels": 29,
+      "portal": {
+        "x": 33953,
+        "y": 5429
+      },
+      "bosses": [
+        "RisenBandit2Hard"
+      ],
+      "enemies": [
+        "RisenBandit2Hard",
+        "SpiritJackalRogueHard",
+        "BrigandCutthroat2Hard",
+        "CastleLizard1Hard",
+        "BrigandCryomancerHard",
+        "CastleLizard2Hard",
+        "CastleLizard3Hard",
+        "BrigandCutthroatHard",
+        "ImperialMagi2Hard",
+        "SpiritDogRogueHard",
+        "GreaterDemonMalignerHard",
+        "ShadowPuppetHard"
+      ]
+    },
+    {
+      "levelName": "LegendsInn9Hard",
+      "region": "Valhaven",
+      "stage": 9,
+      "exitDoorId": 2,
+      "returnDoorId": 1,
+      "monsterBonusLevels": 39,
+      "portal": {
+        "x": 16411,
+        "y": 2586
+      },
+      "bosses": [
+        "BanditBossHard"
+      ],
+      "enemies": [
+        "BanditBossHard",
+        "SkeletonDervishHard",
+        "SkeletonScourgeHard",
+        "OutlanderRogueHard",
+        "SpiritGreatLizardWarriorHard",
+        "ShadowPuppetHard",
+        "SpiritDogRogueHard",
+        "JackalRogueHard",
+        "SpiritImperialFootman3Hard",
+        "CastleLizard2Hard",
+        "CastleLizard3Hard",
+        "BanditRogue2Hard",
+        "SpiritJackalPackmateHard",
+        "BanditRogueHard",
+        "CastleLizard1Hard",
+        "DogRogueHard"
+      ]
+    }
+  ]
+}

@@ -171,14 +171,14 @@
     "TutorialBoat": {"mode":"client-signal"},
     "TutorialDungeon":{"mode":"bosses","partyHostileSync":"bosses-only","bossGroups":[["GoblinBoss1"]],"bossAliases":{"Tag Ugo":"GoblinBoss1","TagUgo":"GoblinBoss1"},"entityObjectives":[{"names":["Chains03"],"role":"anna_freed"}],"cutscene":{"requiredAfterObjectives":true}},
     "TutorialDungeonHard": {"mode":"bosses","partyHostileSync":"bosses-only","bossGroups":[["GoblinBoss1Hard"]],"bossAliases":{"GoblinBoss1":"GoblinBoss1Hard","Tag Ugo":"GoblinBoss1Hard","TagUgo":"GoblinBoss1Hard"},"cutscene":{"requiredAfterObjectives":true}},
-    "LegendsInn1": {"mode":"disabled"},
-    "LegendsInn2": {"mode":"disabled"},
-    "LegendsInn3": {"mode":"disabled"},
-    "LegendsInn4": {"mode":"disabled"},
-    "LegendsInn5": {"mode":"disabled"},
-    "LegendsInn6": {"mode":"disabled"},
-    "LegendsInn7": {"mode":"disabled"},
-    "LegendsInn8": {"mode":"disabled"},
-    "LegendsInn9": {"mode":"full-clear"}
+    "LegendsInn1Hard": {"mode":"disabled"},
+    "LegendsInn2Hard": {"mode":"disabled"},
+    "LegendsInn3Hard": {"mode":"disabled"},
+    "LegendsInn4Hard": {"mode":"disabled"},
+    "LegendsInn5Hard": {"mode":"disabled"},
+    "LegendsInn6Hard": {"mode":"disabled"},
+    "LegendsInn7Hard": {"mode":"disabled"},
+    "LegendsInn8Hard": {"mode":"disabled"},
+    "LegendsInn9Hard": {"mode":"full-clear"}
   }
 }

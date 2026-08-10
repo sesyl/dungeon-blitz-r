@@ -3,8 +3,20 @@
  *
  * Legends' Inn is a tour of Ellyria: one authored dungeon from each region, kept
  * whole. Each stage SWF is the region SWF trimmed down to the single level the
- * stage uses, with one addition - an exit portal in the boss room that leads to
- * the next stage.
+ * stage uses, with two changes - an exit door in the boss room that leads to the
+ * next stage, and a repopulated bestiary.
+ *
+ * The bestiary is the point of the dungeon: every hostile becomes a Dread Rogue,
+ * Paladin or Mage. A level SWF names a hostile by binding an empty marker sprite
+ * to a class called `ac_<EntName>`, and the client reads the EntType off that
+ * name, so the swap is a rename in the ABC constant pool and the SymbolClass
+ * table - no new artwork, no new code, and every room script, wave group, patrol
+ * and boss cutscene still drives exactly the cue it was authored against.
+ * legendsInnEnemies.ts picks the names; this file applies them.
+ *
+ * The exit is deliberately *only* a door. The portal a player walks into is a
+ * server-spawned entity that arrives when the stage's boss dies - see
+ * core/LegendsInn.ts - so nothing is drawn in the boss room until it is earned.
  *
  * Trimming instead of re-authoring is what makes "the whole dungeon" possible.
  * Every room, backdrop, collision object, local door, cue and room script is the
@@ -36,10 +48,12 @@ import {
   collectDependencies,
   encodeTag,
   importCharacters,
+  movePlacement,
   parsePlace,
   readSwfFile,
   readSymbolClasses,
   rebuildSprite,
+  renameAbcStrings,
   spriteInnerTags,
   writeSwfFile,
   writeSymbolClasses,
@@ -51,20 +65,26 @@ import {
   ENTRY_DOOR_ID,
   ENTRY_LEVEL,
   LEGENDS_INN_LEVEL,
+  LEGENDS_INN_PORTAL_ENT,
   LEGENDS_INN_STAGES,
+  LEGENDS_INN_STAGE_DATA_FILE,
   LegendsInnStage,
   RETURN_DOOR_ID,
+  STAGE_TIER,
 } from "./legendsInnStages";
+import {
+  AssignmentContext,
+  EnemyAssignment,
+  PoolEntry,
+  assignStageEnemies,
+  createAssignmentContext,
+  loadDreadClassMobPool,
+  readEnemyCues,
+  resolveRosterElements,
+} from "./legendsInnEnemies";
 
 const CLIENT_CONTENT = path.resolve(__dirname, "..", "..", "client", "content", "localhost", "p");
 const OUT_DIR = path.join(CLIENT_CONTENT, "cbp");
-
-/** The portal drawn on the exit of every stage, borrowed from Bridgetown. */
-const PORTAL_SWF = "cam/LevelsBT.swf";
-const PORTAL_SOURCE_CLASS = "a_Animation_Portal";
-/** How large the portal is drawn, and how far its middle sits above the floor. */
-const PORTAL_SCALE = 0.8;
-const PORTAL_LIFT = 90;
 
 /**
  * Door ids the exit portal may take, best first. Which one a stage ends up with
@@ -136,6 +156,137 @@ function readRooms(swf: SwfFile, levelId: number, nameById: Map<number, string>)
     rooms.push({ charId: child.charId, className, x: child.x, y: child.y });
   }
   return rooms;
+}
+
+/**
+ * How many rooms each class appears in.
+ *
+ * This is what the dungeon entry screen's catalog counts - not how many bodies
+ * are placed. generate-dungeon-enemy-elements.js reads a room script's cue
+ * *declarations*, one per type per room, so a type placed six times in one room
+ * counts once there; matching that keeps the Legends' Inn rows comparable with
+ * every other dungeon's. Wave groups nest their cues inside anonymous sprites,
+ * hence the walk rather than a look at the room's direct children.
+ */
+function countRoomsByClass(swf: SwfFile, rooms: RoomInfo[], nameById: Map<number, string>): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  const collect = (charId: number, into: Set<string>, seen: Set<number>): void => {
+    if (seen.has(charId)) return;
+    seen.add(charId);
+    for (const child of spriteChildren(swf, charId)) {
+      const className = nameById.get(child.charId);
+      if (className) into.add(className);
+      else collect(child.charId, into, seen);
+    }
+  };
+
+  for (const room of rooms) {
+    const present = new Set<string>();
+    collect(room.charId, present, new Set<number>());
+    for (const className of present) counts.set(className, (counts.get(className) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Brings airborne cue placements down onto the floor.
+ *
+ * Several cues in these dungeons were authored for something that flies - wisps,
+ * psychophage swarms, embers, imps, ghost servants - and their placements hang
+ * over chasms, water and treetops on purpose. Nothing built on the Rogue, Paladin
+ * or Mage skeleton flies, so once the bestiary is swapped those placements leave
+ * a walking mob standing in the air, drifting up after the player.
+ *
+ * There is no floor plan to consult here, but the room already contains the
+ * answer: every *ground* enemy in it was authored standing on walkable ground. So
+ * an airborne placement takes the floor height of the nearest ground enemy across
+ * from it, keeping its own x. The client then does the last of the work - it snaps
+ * a spawn onto the floor within 160px, so the reference only has to be close.
+ *
+ * Placements are edited in place rather than rebuilt, because a cue's instance
+ * name is what a room script binds it by.
+ *
+ * Returns how many placements moved and how many had nothing to measure against.
+ */
+function groundAirborneCues(
+  swf: SwfFile,
+  rooms: RoomInfo[],
+  nameById: Map<number, string>,
+  isAirborne: (className: string) => boolean,
+  isGroundEnemy: (className: string) => boolean,
+): { moved: number; unplaced: number } {
+  let moved = 0;
+  let unplaced = 0;
+  // A group sprite can be placed in two rooms, and the walk would then reach the
+  // same placement twice. `movePlacement` shifts by a delta, so a second visit
+  // would move it again - past the floor and out of the room.
+  const alreadyMoved = new Set<string>();
+
+  for (const room of rooms) {
+    // Two passes over the same subtree: one to learn where the floor is, one to
+    // move what is off it. Sprite ids are tracked so a group placed twice is not
+    // walked twice, and rewritten once.
+    const floor: Array<{ x: number; y: number }> = [];
+    const walk = (
+      spriteId: number,
+      offsetX: number,
+      offsetY: number,
+      seen: Set<number>,
+      visit: (className: string, x: number, y: number, spriteId: number, index: number) => void,
+    ): void => {
+      if (seen.has(spriteId)) return;
+      seen.add(spriteId);
+      const tag = characterTagsById(swf).get(spriteId);
+      if (!tag || tag.code !== TAG_DEFINE_SPRITE) return;
+      spriteInnerTags(tag).forEach((inner, index) => {
+        if (inner.code !== TAG_PLACE_OBJECT2 && inner.code !== TAG_PLACE_OBJECT3) return;
+        const place = parsePlace(inner);
+        if (place.charId === null) return;
+        const x = offsetX + (place.matrix ? place.matrix.translateX / 20 : 0);
+        const y = offsetY + (place.matrix ? place.matrix.translateY / 20 : 0);
+        const className = nameById.get(place.charId) ?? "";
+        if (className) visit(className, x, y, spriteId, index);
+        else walk(place.charId, x, y, seen, visit);
+      });
+    };
+
+    walk(room.charId, 0, 0, new Set<number>(), (className, x, y) => {
+      if (isGroundEnemy(className)) floor.push({ x, y });
+    });
+
+    const edits = new Map<number, Map<number, number>>();
+    walk(room.charId, 0, 0, new Set<number>(), (className, x, y, spriteId, index) => {
+      if (!isAirborne(className)) return;
+      if (alreadyMoved.has(`${spriteId}:${index}`)) return;
+      if (floor.length === 0) {
+        unplaced += 1;
+        return;
+      }
+      const nearest = floor.reduce((best, point) => (Math.abs(point.x - x) < Math.abs(best.x - x) ? point : best), floor[0]);
+      const dy = nearest.y - y;
+      if (Math.round(dy) === 0) return;
+      let bySprite = edits.get(spriteId);
+      if (!bySprite) edits.set(spriteId, (bySprite = new Map<number, number>()));
+      bySprite.set(index, dy);
+      alreadyMoved.add(`${spriteId}:${index}`);
+      moved += 1;
+    });
+
+    for (const [spriteId, byIndex] of edits) {
+      const tagIndex = swf.tags.findIndex(
+        (tag) => tag.code === TAG_DEFINE_SPRITE && tag.data.readUInt16LE(0) === spriteId,
+      );
+      if (tagIndex === -1) continue;
+      const inner = spriteInnerTags(swf.tags[tagIndex]).map((tag, index) => {
+        const dy = byIndex.get(index);
+        return dy === undefined ? tag : movePlacement(tag, 0, dy);
+      });
+      swf.tags[tagIndex] = rebuildSprite(swf.tags[tagIndex], inner);
+    }
+  }
+
+  return { moved, unplaced };
 }
 
 /** Functional children of a room - the ones the client resolves by class name. */
@@ -365,9 +516,27 @@ interface StageBuild {
   exitDoorId: number;
   /** Level-space a_PlayerSpawn, which is where an arrival lands. */
   spawn: { x: number; y: number } | null;
+  /** Level-space point the exit door stands on, i.e. where the portal is spawned. */
+  exit: { x: number; y: number };
+  /** What this stage's boss ended up being. The portal opens when it dies. */
+  bosses: string[];
+  /** Every hostile the stage now places, for the entry screen and the build log. */
+  roster: EnemyAssignment["roster"];
+  /** New EntType -> how many rooms it stands in, for the entry screen's catalog. */
+  roomCounts: Map<string, number>;
+  /** Room class names, in the order the level places them. */
+  rooms: string[];
+  /** Airborne placements brought down onto the floor, and any that had no floor. */
+  grounded: { moved: number; unplaced: number };
 }
 
-function buildStage(spec: LegendsInnStage, stageIndex: number, survey: boolean): StageBuild | null {
+function buildStage(
+  spec: LegendsInnStage,
+  stageIndex: number,
+  survey: boolean,
+  pool: PoolEntry[],
+  context: AssignmentContext,
+): StageBuild | null {
   const source = readSwfFile(path.join(CLIENT_CONTENT, spec.swf));
   const symbols = readSymbolClasses(source);
   const nameById = new Map(symbols.map((entry) => [entry.id, entry.name]));
@@ -396,6 +565,36 @@ function buildStage(spec: LegendsInnStage, stageIndex: number, survey: boolean):
     /^a_LevelDirector/.test(nameById.get(child.charId) ?? ""),
   );
 
+  // The bestiary swap, decided before anything is written so --survey can show it.
+  //
+  // Only classes the level itself reaches: a region SWF exports every enemy the
+  // whole region uses, and this stage is one dungeon out of it. Rolling a Dread
+  // mob for a cue that the trim is about to delete would spend the roster on
+  // enemies nobody meets and, worse, count a neighbouring dungeon's boss as this
+  // stage's - which is what opens the exit portal.
+  const reachable = collectDependencies(source, [levelBinding.id]);
+  const cues = readEnemyCues(
+    DATA_DIR,
+    symbols.filter((entry) => reachable.has(entry.id)).map((entry) => entry.name),
+  );
+  const enemies = assignStageEnemies(
+    cues,
+    { classWeights: spec.classWeights, levelBand: spec.enemyLevelBand, bossClass: spec.bossClass },
+    pool,
+    context,
+    new Set(symbols.filter((entry) => entry.name.startsWith("ac_")).map((entry) => entry.name.slice(3))),
+  );
+
+  // Counted against the *old* class names, because that is what the rooms still
+  // place at this point; the catalog reports them under the Dread names the
+  // client will actually ask for.
+  const roomsByOldClass = countRoomsByClass(source, rooms, nameById);
+  const roomCounts = new Map<string, number>();
+  for (const row of enemies.roster) {
+    const count = roomsByOldClass.get(`ac_${row.from}`) ?? 0;
+    if (count > 0) roomCounts.set(row.to, count);
+  }
+
   if (survey) {
     console.log(`\n=== ${spec.levelName}  ${spec.region}  ${spec.swf}/${spec.levelClass}`);
     console.log(`    rooms ${rooms.length}: ${rooms.map((room) => room.className).join(", ")}`);
@@ -403,15 +602,16 @@ function buildStage(spec: LegendsInnStage, stageIndex: number, survey: boolean):
     console.log(`    exit door ${door.className} at room-local (${anchor.x.toFixed(0)}, ${anchor.y.toFixed(0)}), level-space (${(boss.room.x + anchor.x).toFixed(0)}, ${(boss.room.y + anchor.y).toFixed(0)})`);
     console.log(`    a_PlayerSpawn ${spawn ? `(${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)})` : "MISSING"}, a_Door_1 ${entranceDoor ? `(${entranceDoor.x.toFixed(0)}, ${entranceDoor.y.toFixed(0)})` : "MISSING"}`);
     console.log(`    level directors: ${levelDirectors.map((child) => nameById.get(child.charId)).join(", ") || "(none)"}`);
-    const keep = collectDependencies(source, [levelBinding.id]);
-    console.log(`    keeps ${keep.size} of ${characterTagsById(source).size} characters`);
-    console.log(`    spare a_Animation: ${symbols.filter((entry) => /^a_Animation/.test(entry.name) && !keep.has(entry.id)).map((entry) => entry.name).join(", ") || "(none)"}`);
+    console.log(`    keeps ${reachable.size} of ${characterTagsById(source).size} characters`);
+    console.log(`    spare a_Animation: ${symbols.filter((entry) => /^a_Animation/.test(entry.name) && !reachable.has(entry.id)).map((entry) => entry.name).join(", ") || "(none)"}`);
+    console.log(`    bestiary (${enemies.roster.length}): ${enemies.roster.map((row) => `${row.from} -> ${row.to}`).join(", ")}`);
+    console.log(`    boss: ${enemies.bosses.join(", ") || "(none)"}`);
     return null;
   }
 
   // 1. Trim to the one level, plus the door marker character the exit needs.
   const fontsBefore = source.tags.filter((tag) => FONT_TAGS.has(tag.code)).length;
-  const keep = collectDependencies(source, [levelBinding.id]);
+  const keep = new Set(reachable);
   for (const id of collectDependencies(source, [door.charId])) keep.add(id);
   trim(source, keep);
   const fontsAfter = source.tags.filter((tag) => FONT_TAGS.has(tag.code)).length;
@@ -425,14 +625,10 @@ function buildStage(spec: LegendsInnStage, stageIndex: number, survey: boolean):
   // Flash cannot build a MovieClip subclass out of a shape (Error #2136).
   const boundable = new Set(source.tags.map(characterId).filter((id): id is number => id !== null));
 
-  // 2. Bring in the portal artwork and place it with the door on top. The
-  //    artwork stays unbound, the way a room's own scenery is: only the door
-  //    marker needs a class, and a door marker is drawn hidden.
-  const portalSwf = readSwfFile(path.join(CLIENT_CONTENT, PORTAL_SWF));
-  const portalSource = readSymbolClasses(portalSwf).find((entry) => entry.name === PORTAL_SOURCE_CLASS);
-  if (!portalSource) throw new SwfLevelError(`${PORTAL_SWF} has no ${PORTAL_SOURCE_CLASS}`);
-  const portalId = importCharacters(portalSwf, source, [portalSource.id]).idMap.get(portalSource.id) as number;
-  hoistBefore(source, new Set([portalId, door.charId]), boss.room.charId);
+  // 2. Place the exit door. Only the door - a door marker is drawn hidden, so the
+  //    boss room gains nothing visible here. What the player eventually walks
+  //    into is spawned by the server once the boss is down, on this same point.
+  hoistBefore(source, new Set([door.charId]), boss.room.charId);
 
   const roomIndex = source.tags.findIndex(
     (tag) => tag.code === TAG_DEFINE_SPRITE && tag.data.readUInt16LE(0) === boss.room.charId,
@@ -449,15 +645,7 @@ function buildStage(spec: LegendsInnStage, stageIndex: number, survey: boolean):
   inner.splice(
     showFrame === -1 ? inner.length - 1 : showFrame,
     0,
-    buildPlaceObject2({
-      depth,
-      charId: portalId,
-      x: portalAt.x,
-      y: portalAt.y - PORTAL_LIFT,
-      scaleX: PORTAL_SCALE,
-      scaleY: PORTAL_SCALE,
-    }),
-    buildPlaceObject2({ depth: depth + 1, charId: door.charId, x: portalAt.x, y: portalAt.y }),
+    buildPlaceObject2({ depth, charId: door.charId, x: portalAt.x, y: portalAt.y }),
   );
   source.tags[roomIndex] = rebuildSprite(roomTag, inner);
 
@@ -478,22 +666,78 @@ function buildStage(spec: LegendsInnStage, stageIndex: number, survey: boolean):
     source.tags[levelIndex] = rebuildSprite(levelTag, kept);
   }
 
-  // 4. Rewrite the bindings: a SymbolClass entry naming a character that the
+  // 4. Bring the airborne placements down. This runs against the level's original
+  //    class names, before the rename, because "was this cue authored for
+  //    something that flies" is a fact about what the level used to hold.
+  const airborne = new Set(cues.filter((cue) => cue.flying).map((cue) => cue.className));
+  const grounded = groundAirborneCues(
+    source,
+    rooms,
+    nameById,
+    (className) => airborne.has(className),
+    (className) => cues.some((cue) => cue.className === className && !cue.flying),
+  );
+
+  // 5. Repopulate the bestiary. A hostile's identity is the class name bound to
+  //    its marker sprite and nothing else, so renaming the string in the ABC
+  //    constant pool and in the SymbolClass table is the whole swap. Both have to
+  //    move together: the pool is what makes the class exist, the table is what
+  //    binds it to the marker, and a table entry naming a class the pool no
+  //    longer defines is a ReferenceError the moment the room is constructed.
+  const renamed = renameAbcStrings(source, enemies.renames);
+  if (renamed < enemies.renames.size) {
+    throw new SwfLevelError(
+      `${spec.levelName}: renamed ${renamed} of ${enemies.renames.size} enemy classes in the ABC pool`,
+    );
+  }
+
+  // 6. Rewrite the bindings: a SymbolClass entry naming a character that the
   //    trim removed is fatal at load, so only what survived the trim may stay.
-  writeSymbolClasses(source, symbols.filter((entry) => boundable.has(entry.id)));
+  writeSymbolClasses(
+    source,
+    symbols
+      .filter((entry) => boundable.has(entry.id))
+      .map((entry) => ({ id: entry.id, name: enemies.renames.get(entry.name) ?? entry.name })),
+  );
   assertDefinitionOrder(source, spec.levelName);
   assertBindingsMatchTags(source, spec.levelName);
 
   const out = path.join(OUT_DIR, spec.outFile);
   writeSwfFile(out, source);
   const size = fs.statSync(out).size;
+  const exit = { x: boss.room.x + portalAt.x, y: boss.room.y + portalAt.y };
   console.log(
-    `${spec.levelName.padEnd(12)} ${spec.region.padEnd(16)} ${rooms.length} rooms  boss ${boss.room.className}  ` +
-      `exit ${door.className} @ (${(boss.room.x + portalAt.x).toFixed(0)}, ${(boss.room.y + portalAt.y).toFixed(0)})  ` +
+    `${spec.levelName.padEnd(16)} ${spec.region.padEnd(16)} ${rooms.length} rooms  boss ${boss.room.className}  ` +
+      `exit ${door.className} @ (${exit.x.toFixed(0)}, ${exit.y.toFixed(0)})  ` +
       `${isLastStage ? "keeps" : "drops"} level director  -> ${spec.outFile} ${(size / 1024 / 1024).toFixed(2)} MB`,
   );
-  if (spawn) console.log(`             a_PlayerSpawn (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)})`);
-  return { spec, exitDoorId: door.doorId, spawn };
+  if (spawn) console.log(`                 a_PlayerSpawn (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)})`);
+  console.log(`                 ${enemies.roster.length} hostiles -> ${describeRoster(enemies.roster)}`);
+  console.log(`                 boss ${enemies.bosses.join(" + ") || "(none)"}`);
+  if (grounded.moved > 0 || grounded.unplaced > 0) {
+    console.log(`                 grounded ${grounded.moved} airborne placements${grounded.unplaced ? `, ${grounded.unplaced} with no floor to measure` : ""}`);
+  }
+  return {
+    spec,
+    exitDoorId: door.doorId,
+    spawn,
+    exit,
+    bosses: enemies.bosses,
+    roster: enemies.roster,
+    roomCounts,
+    rooms: rooms.map((room) => room.className),
+    grounded,
+  };
+}
+
+/** "7 Rogue / 4 Paladin / 3 Mage", the one line that says whether a stage read right. */
+function describeRoster(roster: EnemyAssignment["roster"]): string {
+  const counts = new Map<string, number>();
+  for (const row of roster) counts.set(row.mobClass, (counts.get(row.mobClass) ?? 0) + 1);
+  return ["Rogue", "Paladin", "Mage"]
+    .filter((mobClass) => counts.has(mobClass))
+    .map((mobClass) => `${counts.get(mobClass)} ${mobClass}`)
+    .join(" / ");
 }
 
 // ---------------------------------------------------------------------------
@@ -514,9 +758,6 @@ const MASTER_FILE_LISTS = [
   path.join(SWZ_LIST_DIR, "masterFileList_2.xml"),
 ];
 
-/** Enemy tier, matching what the level Legends' Inn replaced was set to. */
-const STAGE_TIER = 30;
-
 /** JSON in this tree is CRLF and some of it carries a BOM, which JSON.parse rejects. */
 function readJson(filePath: string): any {
   return JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^﻿/, ""));
@@ -526,7 +767,32 @@ function writeText(filePath: string, text: string, crlf: boolean): void {
   fs.writeFileSync(filePath, crlf ? text.replace(/\r?\n/g, "\r\n") : text);
 }
 
-/** Registers each stage as its own dungeon level, in the block reserved for them. */
+/**
+ * Registers each stage as its own dungeon level, in the block reserved for them.
+ *
+ * The trailing `Hard` is what makes Legends' Inn a Dread dungeon rather than a
+ * dungeon full of Dread-named mobs: `LevelConfig` reads it into `LevelSpec.isHard`,
+ * which is what puts the run on the Dread reward tables and the Dread stat caps
+ * and what labels it "Dread Legends' Inn" in presence.
+ *
+ * `mapId - baseId` is the stage's monster bonus, and it is per stage because the
+ * roster is: the gap is whatever lifts the *weakest* mob the stage rolled onto
+ * row 50. The server reads it back through `getHostileHpTier`, and core/LegendsInn.ts
+ * sends the same number to the client as `mBonusLevels`, which is the half that
+ * actually decides how much health a hostile has.
+ */
+/**
+ * How many levels this stage's monsters are lifted by.
+ *
+ * Enough for the weakest EntType in the roster to reach STAGE_TIER; everything
+ * stronger clamps there, because the health table ends at row 50. Derived from
+ * the roster rather than declared, so it cannot drift when the roster is rerolled.
+ */
+function monsterBonusLevels(build: StageBuild): number {
+  const lowest = build.roster.reduce((least, row) => Math.min(least, row.level), Number.POSITIVE_INFINITY);
+  return Number.isFinite(lowest) ? Math.max(0, STAGE_TIER - lowest) : 0;
+}
+
 function writeLevelConfig(builds: StageBuild[]): void {
   const filePath = path.join(DATA_DIR, "level_config.json");
   const raw = fs.readFileSync(filePath, "utf8");
@@ -537,7 +803,7 @@ function writeLevelConfig(builds: StageBuild[]): void {
   const stageEntries = (): Array<[string, string]> =>
     builds.map((build) => [
       build.spec.levelName,
-      `${build.spec.outFile}/${build.spec.levelClass} ${STAGE_TIER} ${STAGE_TIER} true`,
+      `${build.spec.outFile}/${build.spec.levelClass} ${STAGE_TIER + monsterBonusLevels(build)} ${STAGE_TIER} true Hard`,
     ]);
 
   for (const [key, value] of Object.entries(config)) {
@@ -612,7 +878,14 @@ function writeCompletionConditions(builds: StageBuild[]): void {
   const crlf = raw.includes("\r\n");
   const conditions = readJson(filePath).levels as Record<string, unknown>;
 
-  const lines = raw.replace(/\r\n/g, "\n").split("\n").filter((line) => !/^\s*"LegendsInn\d*"\s*:/.test(line));
+  // Keyed off LEGENDS_INN_LEVEL rather than a literal, so renaming the stages
+  // cannot leave the old rows behind - JSON tolerates a duplicate key, so the
+  // only symptom would have been the file growing nine entries per rebuild.
+  const ownedEntry = (line: string) => {
+    const name = /^\s*"([^"]+)"\s*:/.exec(line)?.[1];
+    return Boolean(name && LEGENDS_INN_LEVEL.test(name));
+  };
+  const lines = raw.replace(/\r\n/g, "\n").split("\n").filter((line) => !ownedEntry(line));
   const isEntry = (line: string) => /^\s{4}"[^"]+"\s*:/.test(line);
   let lastEntry = -1;
   for (let index = 0; index < lines.length; index += 1) if (isEntry(lines[index])) lastEntry = index;
@@ -632,7 +905,16 @@ function writeCompletionConditions(builds: StageBuild[]): void {
   console.log(`dungeon_completion_conditions.json  ${builds.length - 1} disabled, 1 inherited`);
 }
 
-/** The dungeon entry screen's enemy catalog. Same rooms, so the same catalog. */
+/**
+ * The dungeon entry screen's enemy catalog.
+ *
+ * It can no longer be inherited from the dungeon a stage was copied from: the
+ * rooms are the same but nothing standing in them is, so the catalog is built
+ * from what the stage actually places now. The shape has to be the one
+ * generate-dungeon-enemy-elements.js writes for every other dungeon, because two
+ * things read it - the entry screen takes `elements`, and GameData walks
+ * `enemyTypes` to learn which EntTypes count as a level's bosses.
+ */
 function writeEnemyElements(builds: StageBuild[]): void {
   const filePath = path.join(DATA_DIR, "dungeon_enemy_elements.json");
   const raw = fs.readFileSync(filePath, "utf8");
@@ -640,12 +922,47 @@ function writeEnemyElements(builds: StageBuild[]): void {
 
   for (const key of Object.keys(manifest)) if (LEGENDS_INN_LEVEL.test(key)) delete manifest[key];
   for (const build of builds) {
-    const inherited = manifest[build.spec.sourceLevelName];
-    if (!inherited) throw new SwfLevelError(`no enemy catalog to inherit from ${build.spec.sourceLevelName}`);
-    manifest[build.spec.levelName] = inherited;
+    const enemyTypes = [...build.roomCounts.entries()]
+      .sort((left, right) => (right[1] !== left[1] ? right[1] - left[1] : left[0].localeCompare(right[0])))
+      .map(([enemyType, count]) => ({ enemyType, count }));
+
+    manifest[build.spec.levelName] = {
+      elements: resolveRosterElements(DATA_DIR, build.roomCounts.keys()),
+      enemyTypes,
+      source: "level-swf",
+      rooms: [...build.rooms].sort(),
+    };
   }
   writeText(filePath, `${JSON.stringify(manifest, null, 2)}\n`, raw.includes("\r\n"));
   console.log(`dungeon_enemy_elements.json ${builds.length} catalogs`);
+}
+
+/**
+ * What the server needs to know about a stage that only the build can know.
+ *
+ * The exit door id depends on which `a_Door_` classes the region SWF happened to
+ * export, the door's world position depends on where the boss was authored, and
+ * the boss's name depends on the roster the build just rolled. Writing them here
+ * is what keeps core/LegendsInn.ts from carrying a hand-copied second opinion.
+ */
+function writeStageData(builds: StageBuild[]): void {
+  const filePath = path.join(DATA_DIR, LEGENDS_INN_STAGE_DATA_FILE);
+  const stages = builds.map((build, index) => ({
+    levelName: build.spec.levelName,
+    region: build.spec.region,
+    stage: index + 1,
+    exitDoorId: build.exitDoorId,
+    returnDoorId: RETURN_DOOR_ID,
+    // The number the client is handed as mBonusLevels. Kept beside the roster it
+    // was derived from so the two can never disagree.
+    monsterBonusLevels: monsterBonusLevels(build),
+    portal: { x: Math.round(build.exit.x), y: Math.round(build.exit.y) },
+    bosses: build.bosses,
+    enemies: [...new Set(build.roster.map((row) => row.to))],
+  }));
+
+  fs.writeFileSync(filePath, `${JSON.stringify({ portalEnt: LEGENDS_INN_PORTAL_ENT, stages }, null, 2)}\n`);
+  console.log(`${LEGENDS_INN_STAGE_DATA_FILE}  ${stages.length} stages`);
 }
 
 /** Lists the client downloads level SWFs from. */
@@ -686,14 +1003,20 @@ function writeConfig(builds: StageBuild[]): void {
   writeDoorSpawns(builds);
   writeCompletionConditions(builds);
   writeEnemyElements(builds);
+  writeStageData(builds);
   writeMasterFileLists(builds);
 }
 
 function main(): void {
   const { survey, stages } = parseArgs(process.argv);
+  const pool = loadDreadClassMobPool(DATA_DIR);
+  // One context for the whole run, so the tour keeps introducing faces it has not
+  // used yet. `--stage N` therefore rolls the roster stage 1 would have taken;
+  // that is why a partial build never rewrites the config.
+  const context = createAssignmentContext();
   const builds: StageBuild[] = [];
   for (const spec of stages) {
-    const build = buildStage(spec, LEGENDS_INN_STAGES.indexOf(spec), survey);
+    const build = buildStage(spec, LEGENDS_INN_STAGES.indexOf(spec), survey, pool, context);
     if (build) builds.push(build);
   }
   if (survey) return;

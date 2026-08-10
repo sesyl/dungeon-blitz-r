@@ -30,6 +30,7 @@ import {
 } from '../core/HomeStatues';
 import { getCraftTownHomeOwnerCharacter } from '../utils/HomeVisitGuard';
 import { HomeStatueHandler } from './HomeStatueHandler';
+import { LegendsInn } from '../core/LegendsInn';
 
 export class EntityHandler {
     private static readonly CLIENT_SPAWN_LEVELS = new Set<string>([
@@ -1396,6 +1397,9 @@ export class EntityHandler {
         GlobalState.levelEntities.delete(levelScope);
         GlobalState.levelQuestProgress.delete(levelScope);
         DungeonCompletionSystem.reset(levelScope);
+        // A reused instance must not inherit the last run's open exit portal, or the
+        // new party could walk past a boss that is standing there alive.
+        LegendsInn.resetScope(levelScope);
         // A fresh run must not inherit the previous run's open boss scene, or the
         // first legitimate boss cue of the new run would be read as a copy.
         clearOpenBossScene(levelScope);
@@ -1443,6 +1447,9 @@ export class EntityHandler {
         EntityHandler.clearDeadServerAuthorityHostileTombstones(levelScope, 'new_run');
         GlobalState.levelQuestProgress.delete(levelScope);
         DungeonCompletionSystem.reset(levelScope);
+        // A reused instance must not inherit the last run's open exit portal, or the
+        // new party could walk past a boss that is standing there alive.
+        LegendsInn.resetScope(levelScope);
         TutorialDungeonMechanics.resetState(levelScope);
         const keyPrefix = `${levelScope}:`;
         for (const key of Array.from(GlobalState.combatContributions.keys())) {
@@ -4168,6 +4175,10 @@ export class EntityHandler {
              BuildingHandler.refreshCraftTownBuildingsOnSpawn(client);
              EntityHandler.sendCraftTownAuthoredNpcs(client);
              HomeStatueHandler.onCraftTownSpawn(client);
+             // Covers the two arrivals the boss-death broadcast cannot reach: a
+             // party member who was still loading when the boss fell, and anyone
+             // rejoining a run that is already open.
+             LegendsInn.onPlayerSpawned(client);
         }
     }
 

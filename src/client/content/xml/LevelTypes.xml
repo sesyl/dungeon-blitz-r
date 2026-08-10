@@ -999,58 +999,58 @@
 		<RankingsURL>event</RankingsURL>
 		<MusicLoop>D_dungeon_catacomb_v1.mp3</MusicLoop>
 	</LevelType>
-	<LevelType LevelName="LegendsInn1">
+	<LevelType LevelName="LegendsInn1Hard">
 		<ZoneSet>NewbieRoad</ZoneSet>
 		<DisplayName>Legends' Inn</DisplayName>
 		<RankingsURL>legendsinn1</RankingsURL>
-		<MusicLoop>D04_DramaLoop_SpookyForest.mp3</MusicLoop>
+		<MusicLoop>LegendsInn_Theme.mp3</MusicLoop>
 	</LevelType>
-	<LevelType LevelName="LegendsInn2">
+	<LevelType LevelName="LegendsInn2Hard">
 		<ZoneSet>SwampRoadNorth</ZoneSet>
 		<DisplayName>Legends' Inn</DisplayName>
 		<RankingsURL>legendsinn2</RankingsURL>
-		<MusicLoop>D_dungeon_forest_and_swamp_v1.mp3</MusicLoop>
+		<MusicLoop>LegendsInn_Theme.mp3</MusicLoop>
 	</LevelType>
-	<LevelType LevelName="LegendsInn3">
+	<LevelType LevelName="LegendsInn3Hard">
 		<ZoneSet>BridgeTown</ZoneSet>
 		<DisplayName>Legends' Inn</DisplayName>
 		<RankingsURL>legendsinn3</RankingsURL>
-		<MusicLoop>D04_DramaLoop_SpookyForest.mp3</MusicLoop>
+		<MusicLoop>LegendsInn_Theme.mp3</MusicLoop>
 	</LevelType>
-	<LevelType LevelName="LegendsInn4">
+	<LevelType LevelName="LegendsInn4Hard">
 		<ZoneSet>CemeteryHill</ZoneSet>
 		<DisplayName>Legends' Inn</DisplayName>
 		<RankingsURL>legendsinn4</RankingsURL>
-		<MusicLoop>D01_MoodLoop_DreamDragonLair.mp3</MusicLoop>
+		<MusicLoop>LegendsInn_Theme.mp3</MusicLoop>
 	</LevelType>
-	<LevelType LevelName="LegendsInn5">
+	<LevelType LevelName="LegendsInn5Hard">
 		<ZoneSet>OldMineMountain</ZoneSet>
 		<DisplayName>Legends' Inn</DisplayName>
 		<RankingsURL>legendsinn5</RankingsURL>
-		<MusicLoop>D06_DramaLoop_General2.mp3</MusicLoop>
+		<MusicLoop>LegendsInn_Theme.mp3</MusicLoop>
 	</LevelType>
-	<LevelType LevelName="LegendsInn6">
+	<LevelType LevelName="LegendsInn6Hard">
 		<ZoneSet>EmeraldGlades</ZoneSet>
 		<DisplayName>Legends' Inn</DisplayName>
 		<RankingsURL>legendsinn6</RankingsURL>
-		<MusicLoop>OminousDungeonLongLoopFunky_26.mp3</MusicLoop>
+		<MusicLoop>LegendsInn_Theme.mp3</MusicLoop>
 	</LevelType>
-	<LevelType LevelName="LegendsInn7">
+	<LevelType LevelName="LegendsInn7Hard">
 		<ZoneSet>Castle</ZoneSet>
 		<DisplayName>Legends' Inn</DisplayName>
 		<RankingsURL>legendsinn7</RankingsURL>
-		<MusicLoop>OminousDungeonLongLoopNoDrama_10.mp3</MusicLoop>
+		<MusicLoop>LegendsInn_Theme.mp3</MusicLoop>
 	</LevelType>
-	<LevelType LevelName="LegendsInn8">
+	<LevelType LevelName="LegendsInn8Hard">
 		<ZoneSet>ShazariDesert</ZoneSet>
 		<DisplayName>Legends' Inn</DisplayName>
 		<RankingsURL>legendsinn8</RankingsURL>
-		<MusicLoop>OminousDungeonLongLoopFunky_26.mp3</MusicLoop>
+		<MusicLoop>LegendsInn_Theme.mp3</MusicLoop>
 	</LevelType>
-	<LevelType LevelName="LegendsInn9">
+	<LevelType LevelName="LegendsInn9Hard">
 		<ZoneSet>JadeCity</ZoneSet>
 		<DisplayName>Legends' Inn</DisplayName>
 		<RankingsURL>legendsinn9</RankingsURL>
-		<MusicLoop>D06_DramaLoop_General2.mp3</MusicLoop>
+		<MusicLoop>LegendsInn_Theme.mp3</MusicLoop>
 	</LevelType>
 </LevelTypes>

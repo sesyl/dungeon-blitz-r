@@ -61,6 +61,7 @@ import { DungeonCompletionSystem } from '../core/DungeonCompletionSystem';
 import { DungeonCompletionConditions } from '../core/DungeonCompletionConditions';
 import { MovementAuthority } from '../core/MovementAuthority';
 import { noteGroundedSample, resolveConfirmedGroundedPosition, resolveGroundedPosition } from '../core/GroundedPosition';
+import { LegendsInn } from '../core/LegendsInn';
 
 const db = new JsonAdapter();
 
@@ -146,6 +147,8 @@ export class LevelHandler {
         '^tA powerful magic seals this entrance.=^tI still need to learn more about the Sleeping Lands.';
     private static readonly LOCKED_DUNGEON_ENTRY_MESSAGE = "^tI haven't unlocked this dungeon yet.";
     private static readonly LOCKED_STORY_AREA_ENTRY_MESSAGE = "^tI haven't unlocked this area yet.";
+    private static readonly LEGENDS_INN_PORTAL_CLOSED_MESSAGE =
+        '^tThe way on is still sealed.=^tNothing opens until the master of this place falls.';
     private static readonly CASTLE_HOCKE_GATE_DOOR_ID = 3;
     private static readonly VALHAVEN_GATE_DOOR_ID = 2;
     private static readonly GOBLIN_RIVER_INITIAL_PROGRESS = 11;
@@ -5062,6 +5065,16 @@ export class LevelHandler {
             return;
         }
 
+        // The way on out of a Legends' Inn stage. There is nothing drawn on this
+        // door until its boss falls, so a player can only reach it by walking into
+        // the spot the portal will stand in - but the refusal is what makes the
+        // rule real rather than cosmetic.
+        if (!LegendsInn.isDoorUnlocked(client, doorId)) {
+            console.log(`[Level] Open Door ${doorId} in ${currentLevel} blocked until the Legends' Inn stage boss is defeated`);
+            LevelHandler.sendDeniedDoorResponse(client, doorId, rawTargetLevel, LevelHandler.LEGENDS_INN_PORTAL_CLOSED_MESSAGE, true);
+            return;
+        }
+
         if (
             rawTargetLevel &&
             !LevelHandler.isDungeonEntryUnlocked(client, currentLevel, rawTargetLevel)
@@ -5582,6 +5595,20 @@ export class LevelHandler {
             return;
         }
 
+        // Same rule as the door open above, applied to the transfer the client
+        // actually asks for: a stage's exit is refused while its boss is standing.
+        if (!teleportOverride && !LegendsInn.isDoorUnlocked(client, client.lastDoorId)) {
+            console.log(`[Level] Transfer to ${targetLevel} blocked until the Legends' Inn stage boss is defeated`);
+            LevelHandler.sendDeniedDoorResponse(
+                client,
+                client.lastDoorId,
+                targetLevel,
+                LevelHandler.LEGENDS_INN_PORTAL_CLOSED_MESSAGE,
+                true
+            );
+            return;
+        }
+
         if (!teleportOverride && !LevelHandler.isStoryAreaTransferUnlocked(client, targetLevel)) {
             console.log(`[Level] Transfer to ${targetLevel} blocked until the required story area mission state is reached`);
             LevelHandler.sendDeniedDoorResponse(
@@ -5730,7 +5757,12 @@ export class LevelHandler {
         const levelSpec = LevelConfig.get(targetLevel);
         const isHard = targetLevel.endsWith("Hard");
         const oldLevelSpec = LevelConfig.get(oldLevel);
-        const runtimeMapLevel = LevelHandler.resolveDungeonMapPacketLevel(targetLevel, levelSpec.mapId, activeCharacter, client);
+        // The entry plate reads mapLevel + mBonusLevels, so hand it the level the
+        // dungeon presents as rather than the one its monsters fight at.
+        const runtimeMapLevel = LegendsInn.adjustDisplayMapLevel(
+            targetLevel,
+            LevelHandler.resolveDungeonMapPacketLevel(targetLevel, levelSpec.mapId, activeCharacter, client)
+        );
         const runtimeBaseLevel = levelSpec.baseId;
         const isVisitedCraftTown = targetLevel === 'CraftTown' && LevelHandler.isDifferentCharacter(activeCharacter, hostChar);
         const craftTownOwnerToken = isVisitedCraftTown

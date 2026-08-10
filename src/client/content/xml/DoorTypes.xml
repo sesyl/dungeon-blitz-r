@@ -1631,113 +1631,113 @@
 	<DoorType>
 		<MapName>CraftTown</MapName>
 		<DoorID>101</DoorID>
-		<TargetMapName>LegendsInn1</TargetMapName>
+		<TargetMapName>LegendsInn1Hard</TargetMapName>
 		<TargetDoorID>1</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn1</MapName>
+		<MapName>LegendsInn1Hard</MapName>
 		<DoorID>1</DoorID>
 		<TargetMapName>CraftTown</TargetMapName>
 		<TargetDoorID>101</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn1</MapName>
+		<MapName>LegendsInn1Hard</MapName>
 		<DoorID>2</DoorID>
-		<TargetMapName>LegendsInn2</TargetMapName>
+		<TargetMapName>LegendsInn2Hard</TargetMapName>
 		<TargetDoorID>1</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn2</MapName>
+		<MapName>LegendsInn2Hard</MapName>
 		<DoorID>1</DoorID>
 		<TargetMapName>CraftTown</TargetMapName>
 		<TargetDoorID>101</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn2</MapName>
+		<MapName>LegendsInn2Hard</MapName>
 		<DoorID>2</DoorID>
-		<TargetMapName>LegendsInn3</TargetMapName>
+		<TargetMapName>LegendsInn3Hard</TargetMapName>
 		<TargetDoorID>1</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn3</MapName>
+		<MapName>LegendsInn3Hard</MapName>
 		<DoorID>1</DoorID>
 		<TargetMapName>CraftTown</TargetMapName>
 		<TargetDoorID>101</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn3</MapName>
+		<MapName>LegendsInn3Hard</MapName>
 		<DoorID>2</DoorID>
-		<TargetMapName>LegendsInn4</TargetMapName>
+		<TargetMapName>LegendsInn4Hard</TargetMapName>
 		<TargetDoorID>1</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn4</MapName>
+		<MapName>LegendsInn4Hard</MapName>
 		<DoorID>1</DoorID>
 		<TargetMapName>CraftTown</TargetMapName>
 		<TargetDoorID>101</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn4</MapName>
+		<MapName>LegendsInn4Hard</MapName>
 		<DoorID>3</DoorID>
-		<TargetMapName>LegendsInn5</TargetMapName>
+		<TargetMapName>LegendsInn5Hard</TargetMapName>
 		<TargetDoorID>1</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn5</MapName>
+		<MapName>LegendsInn5Hard</MapName>
 		<DoorID>1</DoorID>
 		<TargetMapName>CraftTown</TargetMapName>
 		<TargetDoorID>101</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn5</MapName>
+		<MapName>LegendsInn5Hard</MapName>
 		<DoorID>2</DoorID>
-		<TargetMapName>LegendsInn6</TargetMapName>
+		<TargetMapName>LegendsInn6Hard</TargetMapName>
 		<TargetDoorID>1</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn6</MapName>
+		<MapName>LegendsInn6Hard</MapName>
 		<DoorID>1</DoorID>
 		<TargetMapName>CraftTown</TargetMapName>
 		<TargetDoorID>101</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn6</MapName>
+		<MapName>LegendsInn6Hard</MapName>
 		<DoorID>2</DoorID>
-		<TargetMapName>LegendsInn7</TargetMapName>
+		<TargetMapName>LegendsInn7Hard</TargetMapName>
 		<TargetDoorID>1</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn7</MapName>
+		<MapName>LegendsInn7Hard</MapName>
 		<DoorID>1</DoorID>
 		<TargetMapName>CraftTown</TargetMapName>
 		<TargetDoorID>101</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn7</MapName>
+		<MapName>LegendsInn7Hard</MapName>
 		<DoorID>4</DoorID>
-		<TargetMapName>LegendsInn8</TargetMapName>
+		<TargetMapName>LegendsInn8Hard</TargetMapName>
 		<TargetDoorID>1</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn8</MapName>
+		<MapName>LegendsInn8Hard</MapName>
 		<DoorID>1</DoorID>
 		<TargetMapName>CraftTown</TargetMapName>
 		<TargetDoorID>101</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn8</MapName>
+		<MapName>LegendsInn8Hard</MapName>
 		<DoorID>2</DoorID>
-		<TargetMapName>LegendsInn9</TargetMapName>
+		<TargetMapName>LegendsInn9Hard</TargetMapName>
 		<TargetDoorID>1</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn9</MapName>
+		<MapName>LegendsInn9Hard</MapName>
 		<DoorID>1</DoorID>
 		<TargetMapName>CraftTown</TargetMapName>
 		<TargetDoorID>101</TargetDoorID>
 	</DoorType>
 	<DoorType>
-		<MapName>LegendsInn9</MapName>
+		<MapName>LegendsInn9Hard</MapName>
 		<DoorID>2</DoorID>
 		<TargetMapName>CraftTown</TargetMapName>
 		<TargetDoorID>101</TargetDoorID>

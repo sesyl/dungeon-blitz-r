@@ -397,6 +397,47 @@ export function parsePlace(tag: SwfTag): PlaceInfo {
   return info;
 }
 
+/**
+ * Moves an existing placement without disturbing anything else about it.
+ *
+ * Rebuilding the tag from `parsePlace` would be lossy: a placement carries an
+ * instance name that room scripts bind by (`__id123_`), and may carry a colour
+ * transform, a ratio or a clip depth that `buildPlaceObject2` does not model.
+ * Splicing a freshly encoded matrix over the old one keeps every other byte, and
+ * the length change is absorbed when the sprite is rebuilt.
+ *
+ * Returns the tag unchanged when it has no matrix to move.
+ */
+export function movePlacement(tag: SwfTag, dx: number, dy: number): SwfTag {
+  if (tag.code !== TAG_PLACE_OBJECT2 && tag.code !== TAG_PLACE_OBJECT3) return tag;
+
+  const data = tag.data;
+  let offset = 1;
+  if (tag.code === TAG_PLACE_OBJECT3) offset += 1;
+  const flags = data[0];
+  const flags2 = tag.code === TAG_PLACE_OBJECT3 ? data[1] : 0;
+  offset += 2; // depth
+  if (tag.code === TAG_PLACE_OBJECT3 && flags2 & 0x01) {
+    while (data[offset] !== 0) offset += 1;
+    offset += 1;
+  }
+  if (flags & 0x02) offset += 2; // character id
+  if (!(flags & 0x04)) return tag;
+
+  const start = offset;
+  const read = readMatrix(data, start);
+  const moved: Matrix = {
+    ...read.matrix,
+    translateX: read.matrix.translateX + Math.round(dx * 20),
+    translateY: read.matrix.translateY + Math.round(dy * 20),
+  };
+
+  return {
+    code: tag.code,
+    data: Buffer.concat([data.subarray(0, start), encodeMatrix(moved), data.subarray(read.end)]),
+  };
+}
+
 export interface PlacementSpec {
   depth: number;
   charId: number;

@@ -57738,4 +57738,26 @@
 			<ColorSwap3>0xec0000=0x2647FF</ColorSwap3>
 		</GfxType>
 	</EntType>
+	<EntType EntName="LegendsInnPortal" parent="Base">
+		<DevStatus>LegendsInn</DevStatus>
+		<Level>0</Level>
+		<GroupLevel>0</GroupLevel>
+		<MeleeDamage>0</MeleeDamage>
+		<MagicDamage>0</MagicDamage>
+		<ArmorClass>0</ArmorClass>
+		<HitPoints>0</HitPoints>
+		<RewardClass>NoLoot</RewardClass>
+		<Realm>Object</Realm>
+		<Speed>0</Speed>
+		<Width>200</Width>
+		<Height>250</Height>
+		<Behavior>NPC</Behavior>
+		<EquippedGear/>
+		<GfxType>
+			<AnimClass>a__NephitPortal</AnimClass>
+			<AnimFile>Animation_Nephit.swf</AnimFile>
+			<Shadow>None</Shadow>
+			<AnimScale>1.0</AnimScale>
+		</GfxType>
+	</EntType>
 </EntTypes>

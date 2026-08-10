@@ -26,6 +26,7 @@ import {
   ENTRY_DOOR_ID,
   ENTRY_LEVEL,
   LEGENDS_INN_LEVEL,
+  LEGENDS_INN_MUSIC_LOOP,
   LEGENDS_INN_STAGES,
   RETURN_DOOR_ID,
   legendsInnDisplayName,
@@ -92,17 +93,42 @@ function removeBlocks(xml: string, tag: string, matches: (block: string) => bool
   return xml.replace(pattern, (block) => (matches(block) ? "" : block));
 }
 
+/**
+ * Whether a name belongs to this feature.
+ *
+ * Always asked through LEGENDS_INN_LEVEL rather than a literal pattern: the
+ * stages were renamed once already (they gained the Dread `Hard` suffix), and a
+ * hand-written `LegendsInn\d*` stopped matching them. XML tolerates two
+ * `<LevelType>` blocks with the same name, so the only symptom was every run of
+ * this script quietly leaving the previous run's entries behind - and the client
+ * reading whichever it found first, which was the stale one.
+ */
+function ownsLevel(name: string | undefined): boolean {
+  return Boolean(name && LEGENDS_INN_LEVEL.test(name));
+}
+
 export function patchLevelTypes(xml: string): { xml: string; added: number } {
   const newline = xml.includes("\r\n") ? "\r\n" : "\n";
-  const stripped = removeBlocks(xml, "LevelType", (block) => /LevelName="LegendsInn\d*"/.test(block));
+  const stripped = removeBlocks(xml, "LevelType", (block) =>
+    ownsLevel(/LevelName="([^"]*)"/.exec(block)?.[1]),
+  );
 
   const blocks = LEGENDS_INN_STAGES.map((stage) => {
     const source = new RegExp(`[ \\t]*<LevelType LevelName="${stage.sourceLevelName}">[\\s\\S]*?</LevelType>`).exec(stripped);
     if (!source) throw new SwzPatchError(`LevelTypes has no ${stage.sourceLevelName} to copy`);
-    return source[0]
+    const block = source[0]
       .replace(/LevelName="[^"]*"/, `LevelName="${stage.levelName}"`)
       .replace(/<DisplayName>[^<]*<\/DisplayName>/, `<DisplayName>${legendsInnDisplayName()}</DisplayName>`)
       .replace(/<RankingsURL>[^<]*<\/RankingsURL>/, `<RankingsURL>legendsinn${LEGENDS_INN_STAGES.indexOf(stage) + 1}</RankingsURL>`);
+
+    // One track for the whole dungeon, named identically in all nine stages -
+    // see LEGENDS_INN_MUSIC_LOOP for why that is what keeps it playing across the
+    // portals instead of restarting. Inserted rather than replaced when the
+    // borrowed dungeon had no MusicLoop of its own.
+    const music = `<MusicLoop>${LEGENDS_INN_MUSIC_LOOP}</MusicLoop>`;
+    return /<MusicLoop>[^<]*<\/MusicLoop>/.test(block)
+      ? block.replace(/<MusicLoop>[^<]*<\/MusicLoop>/, music)
+      : block.replace(/(\s*)<\/LevelType>/, `$1\t${music}$1</LevelType>`);
   });
 
   const closing = stripped.lastIndexOf("</LevelTypes>");
@@ -119,7 +145,9 @@ export function patchDoorTypes(xml: string, links: DoorLink[]): { xml: string; a
   const stripped = removeBlocks(
     xml,
     "DoorType",
-    (block) => /<(?:Target)?MapName>LegendsInn\d*<\//.test(block) || entryDoor.test(block),
+    (block) =>
+      [...block.matchAll(/<(?:Target)?MapName>([^<]*)</g)].some((match) => ownsLevel(match[1])) ||
+      entryDoor.test(block),
   );
 
   // `<DoorType>` exactly - `<DoorTypes>` is the root element and sits at column 0.
