@@ -67,9 +67,9 @@ function testDerivesThePoolWhenTheEntityDoesNotCarryOne(): void {
     );
 }
 
-// Sentinel's basic melee swing carries a slice of the wearer's own health pool. Unlike the
-// weapon-data changes that ship with it, this one is genuinely Sentinel-only, because the
-// server knows MasterClass where the shared weapon powers cannot.
+// Sentinel's melee swing carries a slice of the wearer's own health pool. The powers it rides
+// are the Paladin weapon melee attacks, shared by all three disciplines -- which is why this
+// is server-side: the server knows MasterClass where the shared weapon data cannot.
 const sentinelBonusOf = (session: any, powerId: number, damage: number): number =>
     (CombatHandler as any).getSentinelMaxHpBonus(session, powerId, damage);
 
@@ -80,15 +80,30 @@ function sentinel(maxHp: number): any {
     };
 }
 
-const CONCUSSION_BOLT = 316; // PlayerPowerTypes: ConcussionBolt, the Sentinel signature power
-const SHIELD_FLURRY = 295; // any non-basic power id
+// PlayerPowerTypes: the Paladin weapon melee attacks, plus the Sentinel Form swing.
+const SWORD_MELEE = 3;
+const MACE_MELEE = 2;
+const AXE_MELEE = 4;
+const PUNCH_MELEE = 1;
+const SF_MELEE_1 = 465;
+const SF_MELEE_COMBO_1 = 472;
+// The discipline's *ranged* attack, which is where the passive used to live (issue #670), and
+// any other non-basic power.
+const CONCUSSION_BOLT = 316;
+const SHIELD_FLURRY = 329;
 
-function testSentinelSignatureCarriesHealthPool(): void {
-    assert.equal(sentinelBonusOf(sentinel(60_000), CONCUSSION_BOLT, 2000), 60);
-    assert.equal(sentinelBonusOf(sentinel(120_000), CONCUSSION_BOLT, 2000), 120);
+function testSentinelMeleeCarriesHealthPool(): void {
+    assert.equal(sentinelBonusOf(sentinel(60_000), SWORD_MELEE, 2000), 6);
+    assert.equal(sentinelBonusOf(sentinel(120_000), SWORD_MELEE, 2000), 12);
+    for (const powerId of [MACE_MELEE, AXE_MELEE, PUNCH_MELEE, SF_MELEE_1, SF_MELEE_COMBO_1]) {
+        assert.equal(sentinelBonusOf(sentinel(60_000), powerId, 2000), 6, `power ${powerId} must carry the passive`);
+    }
 }
 
-function testSentinelBonusIsSignatureOnly(): void {
+// The bolt is the bug this issue reported: a melee discipline's passive was firing on its
+// ranged attack and nothing else.
+function testSentinelBonusIsMeleeOnly(): void {
+    assert.equal(sentinelBonusOf(sentinel(60_000), CONCUSSION_BOLT, 2000), 0);
     assert.equal(sentinelBonusOf(sentinel(60_000), SHIELD_FLURRY, 2000), 0);
 }
 
@@ -97,13 +112,50 @@ function testSentinelBonusIsSentinelOnly(): void {
         character: { name: 'MaxPally', MasterClass: MasterClassID.Justicar },
         authoritativeMaxHp: 60_000
     };
-    assert.equal(sentinelBonusOf(justicar, CONCUSSION_BOLT, 2000), 0);
+    assert.equal(sentinelBonusOf(justicar, SWORD_MELEE, 2000), 0);
+}
+
+// Justicar: a tenth of Expertise added to Attack, expressed as a share of the hit because
+// Attack is not a stat the server owns. 10% of 4000 Expertise against 2000 Attack is a fifth
+// more Attack, so a 1000 hit lands 200 more.
+const justicarBonusOf = (session: any, entity: any, damage: number): number =>
+    (CombatHandler as any).getJusticarExpertiseBonus(session, entity, damage);
+
+function justicar(): any {
+    return { character: { name: 'MaxPally', MasterClass: MasterClassID.Justicar }, clientEntID: 0, entities: new Map() };
+}
+
+function testJusticarScalesTheHitByExpertise(): void {
+    assert.equal(justicarBonusOf(justicar(), { meleeDamage: 2000, magicDamage: 4000 }, 1000), 200);
+    assert.equal(justicarBonusOf(justicar(), { meleeDamage: 2000, magicDamage: 2000 }, 1000), 100);
+    // Read off the session's own entity when the hit site has no level copy of the player.
+    const session = justicar();
+    session.clientEntID = 7;
+    session.entities.set(7, { meleeDamage: 2000, magicDamage: 4000 });
+    assert.equal(justicarBonusOf(session, null, 1000), 200);
+}
+
+function testJusticarBonusIsJusticarOnly(): void {
+    assert.equal(justicarBonusOf(sentinel(60_000), { meleeDamage: 2000, magicDamage: 4000 }, 1000), 0);
+    assert.equal(justicarBonusOf(null, { meleeDamage: 2000, magicDamage: 4000 }, 1000), 0);
+}
+
+// A player who has not reported stats yet must not have their hits zeroed or blown up by a
+// division against nothing.
+function testJusticarDegenerateStatsAddNothing(): void {
+    assert.equal(justicarBonusOf(justicar(), { meleeDamage: 0, magicDamage: 4000 }, 1000), 0);
+    assert.equal(justicarBonusOf(justicar(), { meleeDamage: 2000, magicDamage: 0 }, 1000), 0);
+    assert.equal(justicarBonusOf(justicar(), {}, 1000), 0);
+    assert.equal(justicarBonusOf(justicar(), { meleeDamage: 2000, magicDamage: 4000 }, 0), 0);
 }
 
 function run(): void {
-    testSentinelSignatureCarriesHealthPool();
-    testSentinelBonusIsSignatureOnly();
+    testSentinelMeleeCarriesHealthPool();
+    testSentinelBonusIsMeleeOnly();
     testSentinelBonusIsSentinelOnly();
+    testJusticarScalesTheHitByExpertise();
+    testJusticarBonusIsJusticarOnly();
+    testJusticarDegenerateStatsAddNothing();
     testDerivesThePoolWhenTheEntityDoesNotCarryOne();
     testBonusScalesWithTargetHealthPool();
     testBonusNeverMoreThanDoublesTheHit();

@@ -554,6 +554,26 @@ const MANA_COSTS = new Map<string, string>([
 const POWER_TEXT_MIGRATIONS: Array<{ power: RegExp; from: string; to: string }> = [
   { power: /^CleavingBlows\d*$/, from: "Your swings return 3 Mana each.", to: "Your swings return 5 Mana each." },
   /**
+   * Defiance and Unstable Barrier say out loud what they have done since the first pass of
+   * patch-dungeonblitz-templar-talent-effects (issue #670). Both bonuses match on
+   * basePowerName, which PowerType falls back to powerName for the rank-0 block that authors
+   * none, so both have applied at every rank from 1 up -- but neither description mentioned
+   * them, which is indistinguishable from the effect being missing.
+   *
+   * Both sentences are rewritten rather than appended to: the loader rejects a migration
+   * whose "to" contains its "from", because that one would re-apply on every prebuild.
+   */
+  {
+    power: /^Defiance\d*$/,
+    from: "Taunt foes while Slowing them and reducing their damage",
+    to: "Taunt and Slow foes, reducing their damage and striking for an extra 0.02% of your maximum Health",
+  },
+  {
+    power: /^DetShieldDetonate\d*$/,
+    from: "Detonate the Barrier.",
+    to: "Blow the Barrier apart, striking for an extra 0.06% of your maximum Health.",
+  },
+  /**
    * The four sentences the spread chain left behind -- each Lightning Bomb rank band authored
    * its own wording for it. They live here rather than in DESCRIPTIONS because that map is
    * keyed by power name and holds one pair per power, so four replacements against the same
