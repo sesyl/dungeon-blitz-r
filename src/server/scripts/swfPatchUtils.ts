@@ -81,6 +81,11 @@ export interface AbcParseResult {
   stringLenPositions: number[];
   stringDataPositions: number[];
   multinameNames: string[];
+  methodInfos: Array<{
+    returnType: number;
+    paramTypes: number[];
+    flags: number;
+  }>;
   instances: InstanceInfo[];
   classTraits: TraitInfo[][];
   methodBodies: Map<number, MethodBodyInfo>;
@@ -465,17 +470,23 @@ export function parseAbc(ctx: SwfContext): AbcParseResult {
 
   let methodCount: number;
   [methodCount, pos] = readU30(data, pos, "abc.method_count");
+  const methodInfos: AbcParseResult["methodInfos"] = [];
   for (let i = 0; i < methodCount; i += 1) {
     let paramCount: number;
     [paramCount, pos] = readU30(data, pos, `abc.method[${i}].param_count`);
-    [, pos] = readU30(data, pos, `abc.method[${i}].return_type`);
+    let returnType: number;
+    [returnType, pos] = readU30(data, pos, `abc.method[${i}].return_type`);
+    const paramTypes: number[] = [];
     for (let j = 0; j < paramCount; j += 1) {
-      [, pos] = readU30(data, pos, `abc.method[${i}].param_type[${j}]`);
+      let paramType: number;
+      [paramType, pos] = readU30(data, pos, `abc.method[${i}].param_type[${j}]`);
+      paramTypes.push(paramType);
     }
     [, pos] = readU30(data, pos, `abc.method[${i}].name`);
     requireBounds(data, pos, 1, `abc.method[${i}].flags`);
     const flags = data[pos];
     pos += 1;
+    methodInfos.push({ returnType, paramTypes, flags });
     if ((flags & 0x08) !== 0) {
       let optionCount: number;
       [optionCount, pos] = readU30(data, pos, `abc.method[${i}].option_count`);
@@ -632,6 +643,7 @@ export function parseAbc(ctx: SwfContext): AbcParseResult {
     stringLenPositions,
     stringDataPositions,
     multinameNames,
+    methodInfos,
     instances,
     classTraits,
     methodBodies,

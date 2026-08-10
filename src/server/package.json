@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "1.16.0",
+  "version": "1.18.10",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -14,6 +14,7 @@
     "patch:bandit-camp-text": "ts-node scripts/patch_bandit_camp_text.ts",
     "patch:clear-bandits-mission": "ts-node scripts/patch_gameswz_clear_bandits_mission.ts",
     "patch:clear-bandits-tracker": "ts-node scripts/patch-dungeonblitz-clear-bandits-tracker.ts",
+    "patch:clear-bandits-npc-marker": "ts-node scripts/patch-dungeonblitz-clear-bandits-npc-marker.ts",
     "patch:clear-bandits-notification": "ts-node scripts/patch-dungeonblitz-clear-bandits-notification.ts",
     "patch:mage-skill-balance": "ts-node scripts/patch_gameswz_mage_skill_balance.ts",
     "patch:form-stance-balance": "ts-node scripts/patch_gameswz_form_stance_balance.ts",
@@ -24,7 +25,7 @@
     "patch:paladin-mastery-balance": "ts-node scripts/patch_gameswz_paladin_mastery_balance.ts",
     "patch:sentinel-form-cooldown": "ts-node scripts/patch_gameswz_sentinel_form_cooldown.ts",
     "patch:home-dummy-bosses": "ts-node scripts/patch_gameswz_home_dummy_bosses.ts",
-    "prebuild": "npm run patch:home-dummy-bosses && npm run patch:power-mana-costs && npm run patch:form-stance-balance && npm run patch:pet-ability-balance && npm run patch:english-text && npm run patch:bandit-camp-text && npm run patch:clear-bandits-mission && npm run patch:clear-bandits-tracker && npm run patch:clear-bandits-notification && npm run patch:mage-skill-balance && npm run patch:rogue-mastery-balance && npm run patch:paladin-mastery-balance && npm run patch:sentinel-form-cooldown && npm run patch:charm-text && npm run patch:power-stat-tooltips",
+    "prebuild": "npm run patch:home-dummy-bosses && npm run patch:power-mana-costs && npm run patch:form-stance-balance && npm run patch:pet-ability-balance && npm run patch:english-text && npm run patch:bandit-camp-text && npm run patch:clear-bandits-mission && npm run patch:clear-bandits-tracker && npm run patch:clear-bandits-npc-marker && npm run patch:clear-bandits-notification && npm run patch:mage-skill-balance && npm run patch:rogue-mastery-balance && npm run patch:paladin-mastery-balance && npm run patch:sentinel-form-cooldown && npm run patch:charm-text && npm run patch:power-stat-tooltips",
     "build": "tsc",
     "premultiplayer": "npm run build",
     "multiplayer": "node dist/main.js",
