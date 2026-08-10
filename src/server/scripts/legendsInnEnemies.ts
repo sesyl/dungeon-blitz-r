@@ -105,6 +105,16 @@ function mobClassOf(byName: Map<string, Record<string, string>>, entName: string
   return null;
 }
 
+/** Reads a field through the `parent` chain, the way the client resolves one. */
+function inheritedField(byName: Map<string, Record<string, string>>, entName: string, field: string): string {
+  let current = byName.get(entName);
+  for (let depth = 0; current && depth < 12; depth += 1) {
+    if (current[field] !== undefined) return String(current[field]);
+    current = byName.get(String(current.parent ?? ""));
+  }
+  return "";
+}
+
 function rankOf(ent: Record<string, string> | undefined): MobRank | null {
   const rank = String(ent?.EntRank ?? "");
   return (RANKS as string[]).includes(rank) ? (rank as MobRank) : null;
@@ -145,7 +155,9 @@ export function loadDreadClassMobPool(dataDir: string): PoolEntry[] {
       mobClass,
       rank,
       level: Math.max(1, Math.round(Number(ent.Level ?? 0)) || 1),
-      displayName: String(ent.DisplayName ?? ""),
+      // Through the parent chain: the name a boss fights under is the one the
+      // client would show, and a few EntTypes inherit theirs rather than declare it.
+      displayName: inheritedField(byName, entName, "DisplayName"),
     });
   }
 
@@ -209,15 +221,6 @@ export interface EnemyCue {
   flying: boolean;
 }
 
-/** Reads a field through the `parent` chain, the way the client resolves one. */
-function inheritedField(byName: Map<string, Record<string, string>>, entName: string, field: string): string {
-  let current = byName.get(entName);
-  for (let depth = 0; current && depth < 12; depth += 1) {
-    if (current[field] !== undefined) return String(current[field]);
-    current = byName.get(String(current.parent ?? ""));
-  }
-  return "";
-}
 
 /** The hostiles a stage places, in the order the SWF exports them. */
 export function readEnemyCues(dataDir: string, classNames: string[]): EnemyCue[] {
@@ -341,7 +344,7 @@ export interface EnemyAssignment {
    * `to` is the *Dread* name, because that is what the client reports and what
    * every server-side lookup - bosses, catalogs, elements - is keyed on.
    */
-  roster: Array<{ from: string; to: string; mobClass: MobClass; rank: MobRank; level: number }>;
+  roster: Array<{ from: string; to: string; displayName: string; mobClass: MobClass; rank: MobRank; level: number }>;
   /** What the stage's boss became, in its Dread name. The portal watches for these. */
   bosses: string[];
 }
@@ -373,7 +376,14 @@ export function assignStageEnemies(
     usedInStage.add(entry.entName);
     context.usedGlobally.add(entry.entName);
     renames.set(cue.className, `ac_${entry.baseEntName}`);
-    roster.push({ from: cue.entName, to: entry.entName, mobClass: entry.mobClass, rank: entry.rank, level: entry.level });
+    roster.push({
+      from: cue.entName,
+      to: entry.entName,
+      displayName: entry.displayName,
+      mobClass: entry.mobClass,
+      rank: entry.rank,
+      level: entry.level,
+    });
     if (cue.rank === "Boss") bosses.push(entry.entName);
   };
 

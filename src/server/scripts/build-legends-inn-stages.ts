@@ -50,6 +50,7 @@ import {
   importCharacters,
   movePlacement,
   parsePlace,
+  readAbcStrings,
   readSwfFile,
   readSymbolClasses,
   rebuildSprite,
@@ -82,6 +83,11 @@ import {
   readEnemyCues,
   resolveRosterElements,
 } from "./legendsInnEnemies";
+import { disassemble, parseAbc, parseSwf } from "./swfPatchUtils";
+
+const OP_PUSHSTRING = 0x2c;
+const OP_SETPROPERTY = 0x61;
+const OP_INITPROPERTY = 0x68;
 
 const CLIENT_CONTENT = path.resolve(__dirname, "..", "..", "client", "content", "localhost", "p");
 const OUT_DIR = path.join(CLIENT_CONTENT, "cbp");
@@ -156,6 +162,53 @@ function readRooms(swf: SwfFile, levelId: number, nameById: Map<number, string>)
     rooms.push({ charId: child.charId, className, x: child.x, y: child.y });
   }
   return rooms;
+}
+
+/**
+ * The names the boss room announces its bosses under.
+ *
+ * A boss does not fight under its EntType's display name. The boss room's own
+ * `InitRoom` overwrites it - `pushstring "Chief Tourzahl"; setproperty displayName`
+ * - and that string is what the health bar at the bottom of the screen shows.
+ * Swapping the bestiary therefore left a Dog Chieftain announcing itself as the
+ * goblin chief it replaced.
+ *
+ * Found by disassembly rather than by a hand-written table: it is one authored
+ * string per boss in nine different region SWFs, and a table would be nine
+ * chances to mistype something no test could catch. Empty assignments are
+ * skipped - most rooms clear the name on their ordinary hostiles.
+ */
+function readBossDisplayNames(swfPath: string, bossRoomClass: string): string[] {
+  const ctx = parseSwf(swfPath);
+  const abc = parseAbc(ctx);
+  const names: string[] = [];
+
+  for (const instance of abc.instances) {
+    if ((abc.multinameNames[instance.classNameIdx] ?? "") !== bossRoomClass) continue;
+    for (const trait of instance.traits) {
+      if (trait.methodIdx === null) continue;
+      const body = abc.methodBodies.get(trait.methodIdx);
+      if (!body) continue;
+
+      let instructions;
+      try {
+        instructions = disassemble(ctx.body.subarray(body.codeStart, body.codeStart + body.codeLen), bossRoomClass);
+      } catch {
+        continue;
+      }
+      for (let index = 0; index + 1 < instructions.length; index += 1) {
+        const push = instructions[index];
+        const store = instructions[index + 1];
+        if (push.opcode !== OP_PUSHSTRING) continue;
+        if (store.opcode !== OP_SETPROPERTY && store.opcode !== OP_INITPROPERTY) continue;
+        if ((abc.multinameNames[store.operands?.[0]?.[1] ?? -1] ?? "") !== "displayName") continue;
+        const value = abc.stringValues[push.operands?.[0]?.[1] ?? -1] ?? "";
+        if (value && !names.includes(value)) names.push(value);
+      }
+    }
+  }
+
+  return names;
 }
 
 /**
@@ -684,10 +737,29 @@ function buildStage(
   //    move together: the pool is what makes the class exist, the table is what
   //    binds it to the marker, and a table entry naming a class the pool no
   //    longer defines is a ReferenceError the moment the room is constructed.
-  const renamed = renameAbcStrings(source, enemies.renames);
-  if (renamed < enemies.renames.size) {
+  //    The boss's plate rides along. Its name is a string the boss room writes
+  //    over the EntType's, so it has to be renamed the same way the classes are -
+  //    otherwise the stage's new boss fights under the name of the one it replaced.
+  const bossNames = readBossDisplayNames(path.join(CLIENT_CONTENT, spec.swf), boss.room.className);
+  const poolStrings = new Set(readAbcStrings(source));
+  const renames = new Map(enemies.renames);
+  bossNames.forEach((authored, index) => {
+    const replacement = enemies.roster.filter((row) => row.rank === "Boss")[index]?.displayName;
+    if (!replacement || replacement === authored) return;
+    // renameAbcStrings refuses to create a name the pool already holds, and a
+    // clash here would abort a build over a health-bar caption.
+    if (poolStrings.has(replacement)) {
+      console.log(`             boss plate "${authored}" left alone: "${replacement}" is already in the pool`);
+      return;
+    }
+    renames.set(authored, replacement);
+    poolStrings.add(replacement);
+  });
+
+  const renamed = renameAbcStrings(source, renames);
+  if (renamed < renames.size) {
     throw new SwfLevelError(
-      `${spec.levelName}: renamed ${renamed} of ${enemies.renames.size} enemy classes in the ABC pool`,
+      `${spec.levelName}: renamed ${renamed} of ${renames.size} strings in the ABC pool`,
     );
   }
 
