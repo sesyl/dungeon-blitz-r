@@ -87,6 +87,35 @@ function branch(opcode: number, fromOffset: number, targetOffset: number): Buffe
     return Buffer.concat([Buffer.from([opcode]), encodeS24(targetOffset - (fromOffset + 4))]);
 }
 
+function ensureFelguardString(swfPath: string): void {
+    const ctx = parseSwf(swfPath);
+    const abc = parseAbc(ctx);
+    if (abc.stringValues.includes(FELGUARD_CONTACT_NAME)) {
+        return;
+    }
+    const patches: BytePatch[] = [{
+        key: 'felguard-string-count',
+        start: abc.stringCountPos,
+        end: abc.stringCountEnd,
+        data: writeU30(abc.stringValues.length + 1),
+        detail: 'reserve the Felguard contact string'
+    }, {
+        key: 'felguard-string-value',
+        start: abc.stringPoolEnd,
+        end: abc.stringPoolEnd,
+        data: encodeString(FELGUARD_CONTACT_NAME),
+        detail: 'add the Felguard contact string'
+    }];
+    ensureBackup(swfPath);
+    const patched = applyPatchesToBody(ctx.body, patches);
+    writeSwf(ctx, patched.body, patched.delta);
+    const verified = parseAbc(parseSwf(swfPath));
+    if (!verified.stringValues.includes(FELGUARD_CONTACT_NAME)) {
+        throw new PatchError('Could not add the Felguard contact string.');
+    }
+    console.log(`${path.basename(swfPath)} patched with the Felguard contact string.`);
+}
+
 function assertInstanceSlotType(
     abc: ReturnType<typeof parseAbc>,
     className: string,
@@ -2171,6 +2200,7 @@ if (verify) {
     verifyMapMarker(swfPath);
     syncClientRevision(swfPath, true);
 } else {
+    ensureFelguardString(swfPath);
     patchNpcContactMarker(swfPath);
     patchNpcSpawnMarker(swfPath);
     patchAcceptanceRefresh(swfPath);
