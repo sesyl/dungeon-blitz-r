@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "1.15.2",
+  "version": "1.15.3",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -20,6 +20,7 @@
     "patch:charm-text": "ts-node scripts/patch_gameswz_charm_text.ts",
     "patch:rogue-mastery-balance": "ts-node scripts/patch_gameswz_rogue_mastery_balance.ts",
     "patch:paladin-mastery-balance": "ts-node scripts/patch_gameswz_paladin_mastery_balance.ts",
+    "patch:portrait-upload": "node scripts/patch-dungeonblitz-portrait-upload.js",
     "patch:sentinel-form-cooldown": "ts-node scripts/patch_gameswz_sentinel_form_cooldown.ts",
     "patch:sentinel-fury-buff": "ts-node scripts/patch_gameswz_sentinel_fury_buff.ts",
     "patch:home-dummy-bosses": "ts-node scripts/patch_gameswz_home_dummy_bosses.ts",

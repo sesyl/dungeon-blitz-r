@@ -93,19 +93,31 @@ const SF_MELEE_COMBO_1 = 472;
 const CONCUSSION_BOLT = 316;
 const SHIELD_FLURRY = 329;
 
+// 0.3% of max HP. Sized against the client's own stat tables: a level-50 Paladin runs about
+// 122k max HP and 1,680 Defense against a 5,264 basic swing, so the two terms together are
+// about 17% of a swing. The rates the issue opened with came to 14 damage.
 function testSentinelMeleeCarriesHealthPool(): void {
-    assert.equal(sentinelBonusOf(sentinel(60_000), SWORD_MELEE, 2000), 6);
-    assert.equal(sentinelBonusOf(sentinel(120_000), SWORD_MELEE, 2000), 12);
+    assert.equal(sentinelBonusOf(sentinel(60_000), SWORD_MELEE, 2000), 180);
+    assert.equal(sentinelBonusOf(sentinel(120_000), SWORD_MELEE, 2000), 360);
     for (const powerId of [MACE_MELEE, AXE_MELEE, PUNCH_MELEE, SF_MELEE_1, SF_MELEE_COMBO_1]) {
-        assert.equal(sentinelBonusOf(sentinel(60_000), powerId, 2000), 6, `power ${powerId} must carry the passive`);
+        assert.equal(sentinelBonusOf(sentinel(60_000), powerId, 2000), 180, `power ${powerId} must carry the passive`);
     }
+}
+
+// Defense is the larger term despite being much the smaller stat -- stacking Defense has to
+// out-damage stacking raw Health, or the passive does not say what the discipline is.
+function testDefenseOutweighsHealthOnARealisticBuild(): void {
+    const level50 = sentinelBonusOf(sentinel(122_596, 1680), SWORD_MELEE, 5264);
+    assert.equal(level50, 368 + 504);
+    assert.ok(504 > 368, 'the Defense term must be the larger of the two');
+    assert.ok(level50 / 5264 > 0.1 && level50 / 5264 < 0.25, `expected 10-25% of a swing, got ${level50}`);
 }
 
 // The Defense half. It reads the client-declared armorClass that
 // patch-dungeonblitz-combat-stats-armor appends to packet 0xFC.
 function testSentinelMeleeCarriesDefense(): void {
-    assert.equal(sentinelBonusOf(sentinel(60_000, 3000), SWORD_MELEE, 2000), 6 + 3);
-    assert.equal(sentinelBonusOf(sentinel(0, 3000), SWORD_MELEE, 2000), 3);
+    assert.equal(sentinelBonusOf(sentinel(60_000, 3000), SWORD_MELEE, 2000), 180 + 900);
+    assert.equal(sentinelBonusOf(sentinel(0, 3000), SWORD_MELEE, 2000), 900);
 }
 
 // A client whose cached SWF predates the packet change sends no Defense at all. The Health
@@ -113,7 +125,7 @@ function testSentinelMeleeCarriesDefense(): void {
 function testSentinelPassiveSurvivesAnUnpatchedClient(): void {
     const stale = sentinel(60_000);
     delete stale.authoritativeArmorClass;
-    assert.equal(sentinelBonusOf(stale, SWORD_MELEE, 2000), 6);
+    assert.equal(sentinelBonusOf(stale, SWORD_MELEE, 2000), 180);
 }
 
 // The bolt is the bug this issue reported: a melee discipline's passive was firing on its
@@ -168,6 +180,7 @@ function testJusticarDegenerateStatsAddNothing(): void {
 function run(): void {
     testSentinelMeleeCarriesHealthPool();
     testSentinelMeleeCarriesDefense();
+    testDefenseOutweighsHealthOnARealisticBuild();
     testSentinelPassiveSurvivesAnUnpatchedClient();
     testSentinelBonusIsMeleeOnly();
     testSentinelBonusIsSentinelOnly();

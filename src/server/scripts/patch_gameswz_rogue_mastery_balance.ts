@@ -290,7 +290,7 @@ const SIGNATURE_DESCRIPTIONS = new Map<string, [string, string]>([
     "ConcussionBolt",
     [
       "The Sentinel's ranged energy attacks.",
-      "The Sentinel's ranged energy attacks. Sentinel passive: your melee attacks also strike for 0.01% of your maximum Health and 0.1% of your Defense.",
+      "The Sentinel's ranged energy attacks. Sentinel passive: your melee attacks also strike for 0.3% of your maximum Health and 30% of your Defense.",
     ],
   ],
   [
@@ -448,7 +448,15 @@ const TEXT_MIGRATIONS: Array<{ power: RegExp; from: string; to: string }> = [
     // (issue #670).
     power: /^ConcussionBolt\d*$/,
     from: "Sentinel passive: every bolt also strikes for 0.1% of your maximum Health.",
-    to: "Sentinel passive: your melee attacks also strike for 0.01% of your maximum Health and 0.1% of your Defense.",
+    to: "Sentinel passive: your melee attacks also strike for 0.3% of your maximum Health and 30% of your Defense.",
+  },
+  {
+    // The rates the issue opened with, shipped and then measured: 0.01% of max HP and
+    // 0.1% of Defense came to 14 damage on a 5,264 basic swing at level 50. See
+    // CombatHandler.getSentinelMaxHpBonus for where the replacements come from.
+    power: /^ConcussionBolt\d*$/,
+    from: "Sentinel passive: your melee attacks also strike for 0.01% of your maximum Health and 0.1% of your Defense.",
+    to: "Sentinel passive: your melee attacks also strike for 0.3% of your maximum Health and 30% of your Defense.",
   },
 ];
 

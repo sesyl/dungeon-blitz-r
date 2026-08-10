@@ -4731,8 +4731,24 @@ export class CombatHandler {
      * MasterClass, so the bonus really is Sentinel-only where a weapon-data change would have
      * handed it to every Justicar and Templar as well.
      *
-     * It used to ride ConcussionBolt, the discipline's *ranged* attack, at ten times this
-     * rate and with no Defense term at all (issue #670).
+     * It used to ride ConcussionBolt, the discipline's *ranged* attack, with no Defense term
+     * at all (issue #670).
+     *
+     * The rates are picked against the client's own stat tables rather than guessed. The
+     * issue first asked for 0.01% of max HP and 0.1% of Defense; shipping those showed how
+     * small they are. A level-50 Paladin runs about 122k max HP and 1,680 Defense (GearType's
+     * per-level rune tables) against a basic swing of 5,264 -- BaseDamageMult 1.0 times
+     * Attack -- so the passive was worth 14 damage, a quarter of one percent. At the rates
+     * below it is 368 + 504, about 17% of a swing, and that share holds within half a point
+     * at every level from 10 to 50 because the gear tables and the HP table climb together.
+     *
+     * Defense is deliberately the larger term despite being much the smaller stat. A Sentinel
+     * who stacks Defense should out-damage one who stacks raw Health -- that is the point of
+     * the discipline -- and the 10:1 rate ratio the issue proposed inverts it, because max HP
+     * is some 65 times Defense in absolute terms.
+     *
+     * The ceiling to measure against is Holy Smash, which draws 3 x Defense from one 20-mana
+     * cast. This is a tenth of that, on an attack that costs nothing and swings every 435ms.
      *
      * The Defense half needed the client to start telling the server its Defense, which it
      * never had: patch-dungeonblitz-combat-stats-armor appends armorClass to packet 0xFC.
@@ -4742,8 +4758,8 @@ export class CombatHandler {
      * Health half still lands and the Defense half is simply absent, which is the failure
      * mode worth having.
      */
-    private static readonly SENTINEL_MAX_HP_RATE = 0.0001;
-    private static readonly SENTINEL_ARMOR_RATE = 0.001;
+    private static readonly SENTINEL_MAX_HP_RATE = 0.003;
+    private static readonly SENTINEL_ARMOR_RATE = 0.3;
     private static readonly SENTINEL_MELEE_POWER_NAMES = [
         'SwordMelee',
         'MaceMelee',
