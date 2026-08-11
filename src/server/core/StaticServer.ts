@@ -1015,8 +1015,13 @@ try {
 
         // Character portraits captured by the client's /portrait chat command.
         this.app.post('/api/portrait', express.raw({ type: () => true, limit: '512kb' }), (req, res) => {
+            // Not String(req.query.name): Express parses `?name=a&name=b` into an array and
+            // `?name[x]=y` into an object, and String() would flatten those to "a,b" and
+            // "[object Object]" -- a name the lookup below never intended to be asked about.
+            // Anything that is not a plain string is no name at all.
+            const requestedName = typeof req.query.name === 'string' ? req.query.name : '';
             const result = storeCharacterPortrait(
-                String(req.query.name ?? ''),
+                requestedName,
                 Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0),
                 this.resolveRequesterAddress(req)
             );
