@@ -93,13 +93,14 @@ export interface LegendsInnStage {
 }
 
 /**
- * Every stage ends on a Dread Rogue mini-boss.
+ * What fills a boss cue when the stage does not name a guardian for it.
  *
- * The tour is Telahair's story and Telahair was a Rogue, so the thing waiting at
- * the end of each leg is one of his - a Dread Rogue mini-boss, wearing the Dread
- * name (`dreadDisplayName`) on its health bar. It is still the room's boss cue:
- * the boss room's script, its intro and the portal that opens when it falls are
- * all unchanged.
+ * Every stage names its guardians now - see `legendsInnBosses.ts`, which the SWF
+ * build reads directly - so in practice nothing reaches these any more. They stay
+ * as the fallback for a stage that grows a boss cue the guardian table has not
+ * caught up with: a Dread Rogue mini-boss, which is what the tour ended on before
+ * the guardians existed. The cue itself is untouched either way - the boss room's
+ * script, its intro and the portal that opens when it falls are all unchanged.
  */
 const STAGE_BOSS_CLASS: MobClass = "Rogue";
 const STAGE_BOSS_RANK: MobRank = "MiniBoss";

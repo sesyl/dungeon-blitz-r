@@ -52,8 +52,9 @@ interface LootReward {
      *
      * The loot-drop packet describes gold, gear, a material, health or a dye and
      * has no consumable slot, so a catalyst is dropped as a *carrier material*
-     * chosen for its rarity colour and swapped back on pickup. Set only by the
-     * Legends' Inn chest; see `core/LegendsInnChest.ts`.
+     * chosen for its rarity colour, and the pickup grants both - the material the
+     * player saw as well as the catalyst it was carrying. Set only by the Legends'
+     * Inn chest; see `core/LegendsInnChest.ts`.
      */
     consumable?: number;
     __lootDropMetadata?: LootDropServerMetadata;
@@ -1343,7 +1344,7 @@ export class RewardHandler {
         sourceEntity: any,
         dropPosition: { x: number; y: number }
     ): boolean {
-        if (!LegendsInnChest.isStageChest(client.currentLevel, sourceEntity)) {
+        if (!LegendsInnChest.isStageChest(client.currentLevel, sourceEntity, dropPosition)) {
             return false;
         }
 
@@ -1380,6 +1381,52 @@ export class RewardHandler {
         return true;
     }
 
+    /**
+     * One of the borrowed dungeon's own chests, standing in a Legends' Inn stage.
+     *
+     * These were the chests that "gave nothing": they are authored props with
+     * authored loot tables, and most of those tables roll no gold at all at this
+     * tier. In here they pay a share of the stage's gold instead - on the floor,
+     * to everyone in the instance, exactly the way the boss chest does - so every
+     * chest in the run is worth the detour.
+     *
+     * Claimed per opening per scope for the same reason the boss chest is: the
+     * report comes from whichever client broke it and the whole instance is paid.
+     *
+     * Returns true when the reward request was this feature's to answer.
+     */
+    private static handleLegendsInnSideChestReward(
+        client: Client,
+        sourceEntity: any,
+        dropPosition: { x: number; y: number }
+    ): boolean {
+        if (!LegendsInnChest.isSideChest(client.currentLevel, sourceEntity, dropPosition)) {
+            return false;
+        }
+
+        const levelScope = getClientLevelScope(client);
+        const chestKey = `side:${Math.max(0, Math.round(Number(sourceEntity?.id ?? 0)))}:${Math.round(dropPosition.x)}:${Math.round(dropPosition.y)}`;
+        if (!claimChestOpening(levelScope, chestKey)) {
+            return true;
+        }
+
+        for (const recipient of GlobalState.getSessionsInLevelScope(levelScope)) {
+            if (!recipient.playerSpawned || !recipient.character || getClientLevelScope(recipient) !== levelScope) {
+                continue;
+            }
+
+            const payout = LegendsInnChest.takeSidePayout(recipient);
+            RewardHandler.spawnLoot(recipient, dropPosition.x, dropPosition.y, { gold: payout.gold }, 0, 0, {
+                reason: 'chest_reward',
+                caller: 'legends_inn_side_chest'
+            });
+            console.log(
+                `[LegendsInn] side chest ${chestKey} paid ${String(recipient.character?.name ?? '')}: ${payout.label}`
+            );
+        }
+        return true;
+    }
+
     static handleGrantReward(client: Client, data: Buffer): void {
         const br = new BitReader(data);
         const reward: RewardRequest = {
@@ -1410,6 +1457,9 @@ export class RewardHandler {
             return;
         }
         if (RewardHandler.handleLegendsInnStageChestReward(client, sourceEntity, dropPosition)) {
+            return;
+        }
+        if (RewardHandler.handleLegendsInnSideChestReward(client, sourceEntity, dropPosition)) {
             return;
         }
         const { rewardNonce, recipients } = RewardHandler.resolveEligibleRecipients(client, reward.sourceId);
@@ -1596,15 +1646,21 @@ export class RewardHandler {
             shouldSave = true;
         }
 
-        // A carrier material is not a material. It is what the client drew on the
-        // ground so a catalyst could be dropped at all, and granting it as well
-        // would quietly pay a second reward nobody asked for.
+        // A catalyst rides down on a carrier material, and *both* are granted.
+        //
+        // The carrier used to be dropped on the floor and then thrown away on
+        // pickup, on the grounds that it was only ever a drawing. From the other
+        // side of the screen that reads as a bug and was reported as one: the
+        // player walks over a material, no material notification appears, and the
+        // bag has no new material in it - because the only thing that landed was a
+        // consumable, and a consumable count update (0x10C) is silent. Paying the
+        // material the player actually saw fixes both halves at once, and the
+        // catalyst still arrives underneath it.
         const consumableId = Math.max(0, Math.round(Number(reward.consumable ?? 0)));
-        if (consumableId > 0) {
-            if (RewardHandler.grantConsumableLoot(client, consumableId)) {
-                shouldSave = true;
-            }
-        } else if (RewardHandler.grantMaterialLoot(client, Number(reward.material ?? 0))) {
+        if (consumableId > 0 && RewardHandler.grantConsumableLoot(client, consumableId)) {
+            shouldSave = true;
+        }
+        if (RewardHandler.grantMaterialLoot(client, Number(reward.material ?? 0))) {
             shouldSave = true;
         }
 

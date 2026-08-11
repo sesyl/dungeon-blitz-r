@@ -27,6 +27,7 @@ import {
     LegendsInnChest,
     claimChestOpening,
     getChestGold,
+    getSideChestGold,
     getWeekKey,
     resetChestOpenings
 } from '../core/LegendsInnChest';
@@ -67,6 +68,58 @@ assert.ok(stage!.chest, 'every stage should record where its boss chest was plac
         LegendsInnChest.isStageChest('GoblinRiverDungeon', atChest),
         false,
         'chests outside Legends\' Inn must not pay'
+    );
+
+    // An opening whose entity the session never registered. All the request
+    // carries is the point the loot was asked for, and that point is the chest.
+    assert.equal(
+        LegendsInnChest.isStageChest('LegendsInn1Hard', null, { x: stage!.chest.x, y: stage!.chest.y }),
+        true,
+        'a chest with no resolvable source entity must still pay - otherwise it pays nothing at all'
+    );
+    // ...but the boss dies 200px away, and must never open the chest by dying.
+    assert.equal(
+        LegendsInnChest.isStageChest('LegendsInn1Hard', null, { x: stage!.chest.x + 200, y: stage!.chest.y }),
+        false,
+        'the nameless fallback must not reach as far as the boss anchor'
+    );
+}
+
+// --- the dungeon's own chests pay a share of the stage ----------------------
+{
+    const elsewhere = { name: 'TreasureChestMedium', x: stage!.chest.x + 4000, y: stage!.chest.y };
+    assert.equal(
+        LegendsInnChest.isSideChest('LegendsInn1Hard', elsewhere),
+        true,
+        "a borrowed dungeon's own chest is a side chest and pays gold"
+    );
+    assert.equal(
+        LegendsInnChest.isSideChest('LegendsInn1Hard', { name: 'TreasureChestLarge', x: stage!.chest.x, y: stage!.chest.y }),
+        false,
+        'the boss chest is paid in full by takePayout and must not be paid twice'
+    );
+    assert.equal(
+        LegendsInnChest.isSideChest('LegendsInn1Hard', { ...elsewhere, name: 'CastleLizard1Hard' }),
+        false,
+        'a hostile is not a chest'
+    );
+    assert.equal(
+        LegendsInnChest.isSideChest('GoblinRiverDungeon', elsewhere),
+        false,
+        "chests outside Legends' Inn keep their own loot tables"
+    );
+
+    const client: any = { character: { name: 'SideChestTester' }, currentLevel: 'LegendsInn9Hard' };
+    const side = LegendsInnChest.takeSidePayout(client);
+    assert.equal(
+        side.gold,
+        getSideChestGold(9),
+        'a side chest pays its own stage, so the later stages are worth more here too'
+    );
+    assert.ok(side.gold > 0, 'a side chest must never pay nothing - that is the bug it exists to fix');
+    assert.ok(
+        side.gold < getChestGold(9),
+        'the chest behind the boss must still be the one the stage is walked for'
     );
 }
 

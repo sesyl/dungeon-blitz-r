@@ -79,11 +79,12 @@ import {
   PoolEntry,
   assignStageEnemies,
   createAssignmentContext,
-  dreadDisplayName,
   loadDreadClassMobPool,
+  loadNamedPoolEntries,
   readEnemyCues,
   resolveRosterElements,
 } from "./legendsInnEnemies";
+import { bossEntName, bossesForStage } from "./legendsInnBosses";
 import { disassemble, parseAbc, parseSwf } from "./swfPatchUtils";
 
 const OP_PUSHSTRING = 0x2c;
@@ -687,6 +688,10 @@ function buildStage(
     DATA_DIR,
     symbols.filter((entry) => reachable.has(entry.id)).map((entry) => entry.name),
   );
+  // The stage's guardians, by name rather than by roll - see legendsInnBosses.ts.
+  // Resolved from EntTypes.json so the roster row a boss produces carries the same
+  // level, rank and display name an ordinary pick would.
+  const guardians = bossesForStage(stageIndex + 1);
   const enemies = assignStageEnemies(
     cues,
     {
@@ -695,6 +700,10 @@ function buildStage(
       bossClass: spec.bossClass,
       bossRank: spec.bossRank,
       rankPlan: spec.rankPlan,
+      bossOverrides: loadNamedPoolEntries(
+        DATA_DIR,
+        guardians.map((boss) => `${bossEntName(boss)}Hard`),
+      ),
     },
     pool,
     context,
@@ -825,13 +834,15 @@ function buildStage(
   }
   const renames = new Map(classRenames);
   bossNames.forEach((authored, index) => {
-    // Keyed off the boss *cue*, not the rank: the stages end on Dread Rogue
-    // mini-bosses now, so `rank === "Boss"` no longer identifies the thing whose
-    // name belongs on the health bar. Stage 9 was the visible symptom - its plate
-    // kept announcing the shipped dungeon's boss because no roster row matched.
-    const replacement = dreadDisplayName(
-      enemies.roster.filter((row) => row.bossSlot)[index]?.displayName ?? "",
-    );
+    // Keyed off the boss *cue*, not the rank: `rank === "Boss"` does not identify
+    // the thing whose name belongs on the health bar, and stage 9 was the visible
+    // symptom - its plate kept announcing the shipped dungeon's boss because no
+    // roster row matched.
+    //
+    // No `Dread ` prefix any more. That prefix existed to stop a borrowed name
+    // ("Hive Guardian") reading as the dungeon it was borrowed from; the guardians
+    // have names of their own now, and "Dread Vehr the Courier" reads as a typo.
+    const replacement = enemies.roster.filter((row) => row.bossSlot)[index]?.displayName ?? "";
     if (!replacement || replacement === authored) return;
     // renameAbcStrings refuses to create a name the pool already holds, and a
     // clash here would abort a build over a health-bar caption.

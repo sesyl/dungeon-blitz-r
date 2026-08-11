@@ -46,6 +46,16 @@ export interface PoolEntry {
   /** The EntType's authored level, which is what sizes it in a Dread run. */
   level: number;
   displayName: string;
+  /**
+   * What the thing looks like.
+   *
+   * `Realm` is the field that decides which body a player-skeleton hostile is
+   * dressed as - Human, Skeleton, Lizard, Spirit, Wolf, Lion, Imperial, Shade,
+   * Dryad, Demon, Scarab - so two EntTypes sharing a realm are two names for the
+   * same silhouette. The tour is nine dungeons long and was drawing the same
+   * handful of silhouettes over and over; `scoreCandidate` spends this to stop it.
+   */
+  realm: string;
 }
 
 const RANKS: MobRank[] = ["Minion", "Lieutenant", "MiniBoss", "Boss"];
@@ -213,7 +223,38 @@ function rankOf(ent: Record<string, string> | undefined): MobRank | null {
  * (see `baseEntName`), so a Dread EntType whose base was never authored - the
  * game has a few, `ShadeInquisitor2Hard` among them - is unreachable however
  * good a fit it looks.
+ *
+ * And excluded by prefix: `LegendsInn*`. The dungeon's own EntTypes - the ten
+ * guardians and the stage-8 summoning totem - satisfy every test here and would
+ * happily be rolled into a corridor, which would put a stage's boss in it twice
+ * over. They are placed by name or not at all.
  */
+function buildPoolEntry(
+  byName: Map<string, Record<string, string>>,
+  entName: string,
+): PoolEntry | null {
+  const ent = byName.get(entName);
+  if (!ent) return null;
+  const baseEntName = /Hard$/.test(entName) ? entName.slice(0, -4) : entName;
+  if (!byName.has(baseEntName)) return null;
+
+  const mobClass = mobClassOf(byName, entName);
+  const rank = rankOf(ent) ?? (rankOf(byName.get(baseEntName)) as MobRank | null);
+  if (!mobClass || !rank) return null;
+
+  return {
+    entName,
+    baseEntName,
+    mobClass,
+    rank,
+    level: Math.max(1, Math.round(Number(inheritedField(byName, entName, "Level"))) || 1),
+    // Through the parent chain: the name a boss fights under is the one the
+    // client would show, and a few EntTypes inherit theirs rather than declare it.
+    displayName: inheritedField(byName, entName, "DisplayName"),
+    realm: inheritedField(byName, entName, "Realm"),
+  };
+}
+
 export function loadDreadClassMobPool(dataDir: string): PoolEntry[] {
   const byName = readEntTypes(dataDir);
   const pool: PoolEntry[] = [];
@@ -221,30 +262,33 @@ export function loadDreadClassMobPool(dataDir: string): PoolEntry[] {
   for (const ent of byName.values()) {
     const entName = String(ent.EntName ?? "");
     if (!/Hard$/.test(entName)) continue;
-    if (/Marker|Dummy|Clone|ShadowLegion|GreenKnight|Emperor|^Spy/.test(entName)) continue;
+    if (/Marker|Dummy|Clone|ShadowLegion|GreenKnight|Emperor|^Spy|^LegendsInn/.test(entName)) continue;
 
-    const baseEntName = entName.slice(0, -4);
-    if (!byName.has(baseEntName)) continue;
-
-    const mobClass = mobClassOf(byName, entName);
-    const rank = rankOf(ent);
-    if (!mobClass || !rank) continue;
-
-    pool.push({
-      entName,
-      baseEntName,
-      mobClass,
-      rank,
-      level: Math.max(1, Math.round(Number(ent.Level ?? 0)) || 1),
-      // Through the parent chain: the name a boss fights under is the one the
-      // client would show, and a few EntTypes inherit theirs rather than declare it.
-      displayName: inheritedField(byName, entName, "DisplayName"),
-    });
+    const entry = buildPoolEntry(byName, entName);
+    if (entry) pool.push(entry);
   }
 
   pool.sort((left, right) => left.entName.localeCompare(right.entName));
   if (pool.length === 0) throw new SwfLevelError("EntTypes.json has no Dread Rogue/Paladin/Mage entries");
   return pool;
+}
+
+/**
+ * Pool entries for EntTypes named outright, rather than rolled for.
+ *
+ * The ten guardians are placed by name (`StageEnemyPlan.bossOverrides`), and the
+ * assignment still wants everything it knows about an ordinary pick - the rank the
+ * roster row reports, the level `monsterBonusLevels` is derived from, the display
+ * name the boss plate is rewritten to. This builds exactly that, for names the
+ * pool deliberately does not carry.
+ */
+export function loadNamedPoolEntries(dataDir: string, entNames: string[]): PoolEntry[] {
+  const byName = readEntTypes(dataDir);
+  return entNames.map((entName) => {
+    const entry = buildPoolEntry(byName, entName);
+    if (!entry) throw new SwfLevelError(`EntTypes.json has no usable ${entName}`);
+    return entry;
+  });
 }
 
 /** The elements the dungeon entry screen shows, most common first. */
@@ -276,8 +320,12 @@ export function resolveRosterElements(dataDir: string, entNames: Iterable<string
   const counts = new Map<string, number>();
 
   for (const entName of entNames) {
-    const ent = byName.get(entName);
-    const element = normalizeElement(ent?.Element) || normalizeElement(KINGDOM_TO_ELEMENT[String(ent?.Kingdom ?? "")]);
+    // Through the parent chain, the way the client resolves one: the ten
+    // guardians declare neither field and inherit both from the body they wear,
+    // and reading them flat would drop a stage's boss out of its own catalog.
+    const element =
+      normalizeElement(inheritedField(byName, entName, "Element")) ||
+      normalizeElement(KINGDOM_TO_ELEMENT[inheritedField(byName, entName, "Kingdom")]);
     if (!element) continue;
     counts.set(element, (counts.get(element) ?? 0) + 1);
   }
@@ -352,6 +400,19 @@ export interface StageEnemyPlan {
    * them fights at Minion strength.
    */
   rankPlan?: MobRank[];
+  /**
+   * The EntTypes the stage's boss cues are filled with, in cue order, instead of
+   * anything out of the pool.
+   *
+   * Legends' Inn ends each leg on a named guardian with its own EntType - see
+   * `legendsInnBosses.ts` - so a boss slot is not a roll at all any more. Resolve
+   * them with `loadNamedPoolEntries`: the pool itself does not carry them, exactly
+   * so that nothing can roll one into a corridor.
+   *
+   * A stage with more boss cues than overrides falls back to the roll for the
+   * extras rather than failing the build.
+   */
+  bossOverrides?: PoolEntry[];
 }
 
 export interface AssignmentContext {
@@ -367,10 +428,25 @@ export interface AssignmentContext {
    * different stages ended on the same face.
    */
   usedAsBoss: Set<string>;
+  /**
+   * How many hostiles the tour has already placed of each `Realm`.
+   *
+   * The complaint this answers is about *looks*, not about names: a stage could
+   * introduce twelve EntTypes the tour had never used and still be the fifth hold
+   * in a row full of castle lizards, because `Realm` is what decides the body and
+   * several EntTypes share one. Counting realms across the whole tour is what lets
+   * `scoreCandidate` push a stage towards silhouettes the run has not shown much
+   * of yet.
+   */
+  realmsUsedGlobally: Map<string, number>;
 }
 
 export function createAssignmentContext(): AssignmentContext {
-  return { usedGlobally: new Set<string>(), usedAsBoss: new Set<string>() };
+  return {
+    usedGlobally: new Set<string>(),
+    usedAsBoss: new Set<string>(),
+    realmsUsedGlobally: new Map<string, number>(),
+  };
 }
 
 /**
@@ -384,7 +460,14 @@ export function createAssignmentContext(): AssignmentContext {
  *   - sit inside the stage's level band, because a Dread hostile is sized from
  *     its authored level plus the level's jump - a level-3 skeleton in the last
  *     dungeon would be free experience;
+ *   - prefer a *silhouette* the stage, and then the tour, has not leaned on;
  *   - and, all else equal, prefer a face the tour has not used yet.
+ *
+ * The last two are what stops nine dungeons reading as one. `usedGlobally` alone
+ * was too weak to do it - at 90 it lost to a two-level band miss - and it was
+ * answering the wrong question anyway: a stage full of EntTypes the tour had never
+ * placed is still the fifth hold of castle lizards if they all share a `Realm`. So
+ * the realm terms are the heavy ones now and the name term was raised to match.
  */
 function scoreCandidate(
   entry: PoolEntry,
@@ -396,6 +479,7 @@ function scoreCandidate(
   reservedBaseNames: Set<string>,
   bossSlot: boolean,
   bossDisplayNamesInStage: Set<string>,
+  realmsInStage: Map<string, number>,
 ): number {
   if (usedInStage.has(entry.entName)) return Number.POSITIVE_INFINITY;
   // Two boss cues in one room - Bridgetown's twins - must not answer to the same
@@ -432,11 +516,26 @@ function scoreCandidate(
         ? entry.level - plan.levelBand.max
         : 0;
 
+  // Both realm terms are per *extra* body of that realm, so the first Skeleton in
+  // a stage is free, the second costs a little and the sixth costs more than
+  // stepping a rank sideways. Growing rather than flat, because the goal is not to
+  // ban a repeat - a hold does want a theme - but to stop one silhouette filling
+  // it, and then filling the next stage as well.
+  const realmInStage = entry.realm ? (realmsInStage.get(entry.realm) ?? 0) : 0;
+  const realmOnTour = entry.realm ? (context.realmsUsedGlobally.get(entry.realm) ?? 0) : 0;
+
   return (
-    (entry.mobClass === desiredClass ? 0 : 400) +
+    // Bigger than every other term put together. It used to be 400, which was
+    // comfortably ahead of the reuse penalty it shared the formula with - and is
+    // not ahead of the realm terms below, which pushed a Paladin into the last two
+    // stages the moment the Rogue shelf started repeating itself. Those two stages
+    // are the Rogue leg of Telahair's story; variety is never worth breaking them.
+    (entry.mobClass === desiredClass ? 0 : 2_500) +
     rankIndex * 120 +
     bandMiss * 6 +
-    (context.usedGlobally.has(entry.entName) ? 90 : 0) +
+    realmInStage * 55 +
+    realmOnTour * 12 +
+    (context.usedGlobally.has(entry.entName) ? 260 : 0) +
     // Bigger than every other term put together, so a stage ends on a face the
     // tour has not ended on before whenever one is left - but a penalty rather
     // than a bar, because there are fewer Dread Rogue mini-bosses than boss cues.
@@ -454,12 +553,13 @@ function pick(
   reservedBaseNames: Set<string>,
   bossSlot: boolean,
   bossDisplayNamesInStage: Set<string>,
+  realmsInStage: Map<string, number>,
 ): PoolEntry {
   let best: PoolEntry | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
 
   for (const entry of pool) {
-    const score = scoreCandidate(entry, desiredClass, desiredRank, plan, context, usedInStage, reservedBaseNames, bossSlot, bossDisplayNamesInStage);
+    const score = scoreCandidate(entry, desiredClass, desiredRank, plan, context, usedInStage, reservedBaseNames, bossSlot, bossDisplayNamesInStage, realmsInStage);
     if (score < bestScore) {
       best = entry;
       bestScore = score;
@@ -502,11 +602,16 @@ export interface EnemyAssignment {
 /**
  * Repopulates one stage.
  *
- * Bosses are assigned first and out of the class the stage was planned around, so
- * the fight at the end is the one the stage is named for rather than whatever the
+ * Bosses are assigned first - from `plan.bossOverrides` where the stage names its
+ * guardians, and otherwise out of the class the stage was planned around, so the
+ * fight at the end is the one the stage is named for rather than whatever the
  * weight cycle happened to land on. Everything else is walked in the SWF's own
  * export order - stable, and unrelated to how the rooms are laid out, so the
  * weights spread across the whole dungeon instead of filling room 1 with Rogues.
+ *
+ * Doing the bosses first also matters to the realm terms in `scoreCandidate`: the
+ * guardian's own silhouette is counted before the stage's rank and file is filled,
+ * so a hold ending on a Skeleton is a little less likely to be full of them.
  */
 export function assignStageEnemies(
   cues: EnemyCue[],
@@ -521,12 +626,17 @@ export function assignStageEnemies(
   const bosses: string[] = [];
   const usedInStage = new Set<string>();
   const bossDisplayNamesInStage = new Set<string>();
+  /** Bodies already standing in this stage, by realm. See `scoreCandidate`. */
+  const realmsInStage = new Map<string, number>();
 
-  const take = (cue: EnemyCue, desiredClass: MobClass, desiredRank: MobRank): void => {
+  const place = (cue: EnemyCue, entry: PoolEntry): void => {
     const bossSlot = cue.rank === "Boss";
-    const entry = pick(pool, desiredClass, desiredRank, plan, context, usedInStage, reservedBaseNames, bossSlot, bossDisplayNamesInStage);
     usedInStage.add(entry.entName);
     context.usedGlobally.add(entry.entName);
+    if (entry.realm) {
+      realmsInStage.set(entry.realm, (realmsInStage.get(entry.realm) ?? 0) + 1);
+      context.realmsUsedGlobally.set(entry.realm, (context.realmsUsedGlobally.get(entry.realm) ?? 0) + 1);
+    }
     if (bossSlot) {
       context.usedAsBoss.add(entry.entName);
       bossDisplayNamesInStage.add(entry.displayName);
@@ -539,13 +649,37 @@ export function assignStageEnemies(
       mobClass: entry.mobClass,
       rank: entry.rank,
       level: entry.level,
-      bossSlot: cue.rank === "Boss",
+      bossSlot,
     });
-    if (cue.rank === "Boss") bosses.push(entry.entName);
+    if (bossSlot) bosses.push(entry.entName);
   };
 
+  const take = (cue: EnemyCue, desiredClass: MobClass, desiredRank: MobRank): void => {
+    const bossSlot = cue.rank === "Boss";
+    place(
+      cue,
+      pick(
+        pool,
+        desiredClass,
+        desiredRank,
+        plan,
+        context,
+        usedInStage,
+        reservedBaseNames,
+        bossSlot,
+        bossDisplayNamesInStage,
+        realmsInStage,
+      ),
+    );
+  };
+
+  let bossIndex = 0;
   for (const cue of cues) {
-    if (cue.rank === "Boss") take(cue, plan.bossClass, plan.bossRank ?? "Boss");
+    if (cue.rank !== "Boss") continue;
+    const override = plan.bossOverrides?.[bossIndex];
+    bossIndex += 1;
+    if (override) place(cue, override);
+    else take(cue, plan.bossClass, plan.bossRank ?? "Boss");
   }
 
   let weightIndex = 0;

@@ -17,22 +17,22 @@
         "y": 1865
       },
       "bosses": [
-        "BanditGreatRogueHard"
+        "LegendsInnBoss1Hard"
       ],
       "enemies": [
-        "BanditGreatRogueHard",
-        "DogPackmate2Hard",
-        "SwampSkeletonSorcererHard",
-        "CastleLizard1Hard",
-        "DogAlphaHard",
-        "GreaterSkeletonSorcererHard",
-        "DogRogueHard",
-        "GreatLizardHeavy2Hard",
+        "LegendsInnBoss1Hard",
+        "GreaterSkeletonClubHard",
         "MeylourMage2Hard",
+        "CastleLizard1Hard",
+        "CougarGreaterHard",
+        "AshenDryad2Hard",
+        "SpiritDogRogueHard",
+        "DogAlphaHard",
+        "SwampSkeletonSorcererHard",
         "CastleLizard2Hard",
-        "DogPackmateHard",
-        "MeylourMageHard",
-        "CastleLizard3Hard"
+        "ShadeWarriorHard",
+        "ShadeMage2Hard",
+        "BanditRogue2Hard"
       ]
     },
     {
@@ -41,7 +41,7 @@
       "stage": 2,
       "exitDoorId": 2,
       "returnDoorId": 1,
-      "monsterBonusLevels": 46,
+      "monsterBonusLevels": 39,
       "portal": {
         "x": 15302,
         "y": 4676
@@ -51,21 +51,21 @@
         "y": 4676
       },
       "bosses": [
-        "GreaterSkeletonRogueHard"
+        "LegendsInnBoss2Hard"
       ],
       "enemies": [
-        "GreaterSkeletonRogueHard",
-        "InfusedSkeletonSorcererHard",
-        "GreaterSkeletonClubHard",
-        "BanditRogue2Hard",
-        "SkeletonSorcererHard",
-        "GreaterSkeletonEliteHard",
+        "LegendsInnBoss2Hard",
+        "MeylourMageHard",
+        "DogPackmate2Hard",
         "BanditRogueHard",
-        "AshenDryad2Hard",
-        "GreaterSkeletonFistHard",
-        "JackalRogueHard",
         "AshenDryadHard",
-        "GreaterSkeletonSwordHard"
+        "LionAlphaHard",
+        "DogRogueHard",
+        "SpiritAshenDryadHard",
+        "DeepLizardWarriorHard",
+        "CastleLizard3Hard",
+        "ShadeMageHard",
+        "GreaterSkeletonFistHard"
       ]
     },
     {
@@ -84,20 +84,20 @@
         "y": 1932
       },
       "bosses": [
-        "InfusedSkeletonRogue2Hard",
-        "SpiritJackalRogueHard"
+        "LegendsInnBoss3AHard",
+        "LegendsInnBoss3BHard"
       ],
       "enemies": [
-        "InfusedSkeletonRogue2Hard",
-        "SpiritJackalRogueHard",
-        "InfusedSkeletonRogueHard",
-        "GreatLizardMasterHard",
-        "SpiritAshenDryadHard",
-        "CastleLizard1Hard",
-        "InfusedSkeletonClubHard",
-        "ShadeMage2Hard",
-        "SpiritDogRogueHard",
-        "InfusedSkeletonEliteHard"
+        "LegendsInnBoss3AHard",
+        "LegendsInnBoss3BHard",
+        "GreaterSkeletonRogueHard",
+        "LionGreaterHard",
+        "ImperialMagiHard",
+        "JackalRogueHard",
+        "GreatLizardBanner2Hard",
+        "ShadeSummonerHard",
+        "GreaterDemonMalignerHard",
+        "SpiritImperialCenturion1Hard"
       ]
     },
     {
@@ -106,7 +106,7 @@
       "stage": 4,
       "exitDoorId": 3,
       "returnDoorId": 1,
-      "monsterBonusLevels": 38,
+      "monsterBonusLevels": 46,
       "portal": {
         "x": 5656,
         "y": 5183
@@ -116,36 +116,36 @@
         "y": 5183
       },
       "bosses": [
-        "MeylourEnthralledRogueHard"
+        "LegendsInnBoss4Hard"
       ],
       "enemies": [
-        "MeylourEnthralledRogueHard",
+        "LegendsInnBoss4Hard",
         "CougarWarrior2Hard",
-        "CastleLizard1Hard",
-        "ShadeMageHard",
-        "CougarWarriorHard",
+        "ShadowPuppetHard",
+        "ShadeSummoner2Hard",
+        "SpiritCougarWarriorHard",
+        "ScarabRogueHard",
+        "SkeletonSorcererHard",
+        "DeepLizardWarrior2Hard",
         "OutlanderRogueHard",
-        "ImperialMagiHard",
-        "DeepLizardWarriorHard",
-        "CastleLizard2Hard",
         "ImperialMagi2Hard",
         "CougarGreater2Hard",
-        "CastleLizard3Hard",
-        "ShadeSummonerHard",
-        "LionPridemate2Hard",
         "BrigandCutthroatHard",
-        "BrigandCryomancerHard",
-        "LionPridemateHard",
-        "BrigandCutthroat2Hard",
-        "ShadeSummoner2Hard",
-        "CougarGreaterHard",
-        "GreaterDemonMalignerHard",
         "DreamInfusedSkeletonSorcererHard",
-        "DeepLizardWarrior2Hard",
-        "ShadowPuppetHard",
-        "MeylourMage2Hard",
+        "GreatLizardWarrior2Hard",
+        "SkeletonDervishHard",
+        "AshenDryad2Hard",
+        "CougarWarriorHard",
+        "BrigandCutthroat2Hard",
+        "AshenDryadHard",
+        "DeepLizardHeavy2Hard",
+        "GreaterDemonMalignerHard",
+        "SkeletonLifebaneHard",
+        "SpiritDeepLizardWarriorHard",
+        "CastleLizard1Hard",
+        "ShadeMage2Hard",
         "LionAlpha2Hard",
-        "BanditRogue2Hard"
+        "SpiritJackalRogueHard"
       ]
     },
     {
@@ -164,24 +164,24 @@
         "y": 4141
       },
       "bosses": [
-        "ScarabRogueHard"
+        "LegendsInnBoss5Hard"
       ],
       "enemies": [
-        "ScarabRogueHard",
+        "LegendsInnBoss5Hard",
         "MeylourEnthralledMageHard",
-        "JackalRogueHard",
+        "InfusedSkeletonRogue2Hard",
         "JackalPackmate2Hard",
-        "MeylourMage2Hard",
-        "CastleLizard1Hard",
-        "JackalPackmateHard",
-        "MeylourMageHard",
-        "BanditRogue2Hard",
-        "JackalAlphaHard",
         "GreaterSkeletonSorcererHard",
-        "BanditRogueHard",
+        "CastleLizard1Hard",
+        "SpiritDogPackmateHard",
+        "BrigandCryomancerHard",
+        "DreamJackalChieftainHard",
+        "JackalAlphaHard",
+        "ImperialMagiHard",
+        "InfusedSkeletonRogueHard",
         "CastleLizardHeavy1Hard",
-        "SpiritAshenDryadHard",
-        "CastleLizard2Hard"
+        "ShadeMage2Hard",
+        "GreaterDemonMalignerHard"
       ]
     },
     {
@@ -190,7 +190,7 @@
       "stage": 6,
       "exitDoorId": 2,
       "returnDoorId": 1,
-      "monsterBonusLevels": 32,
+      "monsterBonusLevels": 36,
       "portal": {
         "x": 15930,
         "y": 2915
@@ -200,23 +200,23 @@
         "y": 2915
       },
       "bosses": [
-        "DreamJackalChieftainHard"
+        "LegendsInnBoss6Hard"
       ],
       "enemies": [
-        "DreamJackalChieftainHard",
+        "LegendsInnBoss6Hard",
         "CastleLizardMasterHard",
-        "SpiritAshenDryadHard",
-        "SpiritDogRogueHard",
-        "CastleLizardHeavy2Hard",
-        "ShadeMage2Hard",
-        "OutlanderRogueHard",
-        "CastleLizardBanner1Hard",
-        "ShadeMageHard",
-        "CastleLizard1Hard",
-        "CastleLizardBanner2Hard",
+        "MeylourGreatWizardHard",
+        "SkeletonScourgeHard",
+        "SpiritJackalAlphaHard",
         "ImperialMagiHard",
-        "CastleLizard2Hard",
-        "DeepLizardHeavy2Hard"
+        "MeylourEnthralledRogueHard",
+        "CastleLizardBanner1Hard",
+        "ShadeMage2Hard",
+        "GreaterDemonMalignerHard",
+        "SpiritGreatLizardBannerHard",
+        "ImperialMagi2Hard",
+        "CastleLizard1Hard",
+        "OutlanderGladiatorHard"
       ]
     },
     {
@@ -225,7 +225,7 @@
       "stage": 7,
       "exitDoorId": 4,
       "returnDoorId": 1,
-      "monsterBonusLevels": 36,
+      "monsterBonusLevels": 38,
       "portal": {
         "x": 20074,
         "y": 160
@@ -235,23 +235,23 @@
         "y": 160
       },
       "bosses": [
-        "InfusedSkeletonRogueHard"
+        "LegendsInnBoss7Hard"
       ],
       "enemies": [
-        "InfusedSkeletonRogueHard",
-        "MeylourGreatWizardHard",
-        "ShadeWarriorHard",
-        "ScarabRogueHard",
-        "AshenDryad2Hard",
+        "LegendsInnBoss7Hard",
+        "DreamFirePriestWizardHard",
+        "LionPridemate2Hard",
+        "BanditGreatRogueHard",
+        "InfusedSkeletonSorcererHard",
         "DeepLizardHeavyHard",
-        "OutlanderRogueHard",
-        "AshenDryadHard",
-        "FirePriest2Hard",
-        "BrigandCutthroatHard",
+        "GreaterDemonMalignerHard",
+        "AshenDryad2Hard",
+        "InfusedSkeletonEliteHard",
+        "JackalRogueHard",
         "ShadeMage2Hard",
-        "InfusedSkeletonSwordHard",
-        "BrigandCutthroat2Hard",
-        "ShadeMageHard"
+        "LionPridemateHard",
+        "ScarabRogueHard",
+        "AshenDryadHard"
       ]
     },
     {
@@ -260,7 +260,7 @@
       "stage": 8,
       "exitDoorId": 2,
       "returnDoorId": 1,
-      "monsterBonusLevels": 38,
+      "monsterBonusLevels": 39,
       "portal": {
         "x": 33953,
         "y": 5429
@@ -270,20 +270,20 @@
         "y": 5429
       },
       "bosses": [
-        "SpiritJackalRogueHard"
+        "LegendsInnBoss8Hard"
       ],
       "enemies": [
-        "SpiritJackalRogueHard",
-        "BrigandCutthroat2Hard",
-        "DreamJackalChieftainHard",
-        "BrigandCutthroatHard",
-        "InfusedSkeletonRogue2Hard",
-        "SpiritDogRogueHard",
-        "InfusedSkeletonRogueHard",
+        "LegendsInnBoss8Hard",
         "GreaterDemonMalignerHard",
-        "MeylourEnthralledRogueHard",
+        "SpiritJackalRogueHard",
         "ShadowPuppetHard",
-        "BanditGreatRogueHard"
+        "InfusedSkeletonRogue2Hard",
+        "JackalRogueHard",
+        "DreamJackalChieftainHard",
+        "BrigandCutthroat2Hard",
+        "InfusedSkeletonRogueHard",
+        "DogRogueHard",
+        "MeylourEnthralledRogueHard"
       ]
     },
     {
@@ -302,25 +302,25 @@
         "y": 2586
       },
       "bosses": [
-        "ScarabRogueHard"
+        "LegendsInnBoss9Hard"
       ],
       "enemies": [
-        "ScarabRogueHard",
-        "SkeletonDervishHard",
-        "SpiritJackalRogueHard",
-        "SkeletonScourgeHard",
-        "InfusedSkeletonRogue2Hard",
-        "OutlanderRogueHard",
-        "InfusedSkeletonRogueHard",
+        "LegendsInnBoss9Hard",
         "ShadowPuppetHard",
+        "ScarabRogueHard",
+        "JackalRogueHard",
+        "SpiritJackalRogueHard",
+        "SkeletonDervishHard",
         "MeylourEnthralledRogueHard",
         "SpiritDogRogueHard",
+        "InfusedSkeletonRogue2Hard",
+        "DogRogueHard",
         "BanditGreatRogueHard",
-        "JackalRogueHard",
+        "SkeletonScourgeHard",
+        "InfusedSkeletonRogueHard",
+        "OutlanderRogueHard",
         "GreaterSkeletonRogueHard",
-        "BanditRogue2Hard",
-        "BanditRogueHard",
-        "DogRogueHard"
+        "CastleLizard2Hard"
       ]
     }
   ]
