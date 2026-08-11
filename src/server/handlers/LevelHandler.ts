@@ -62,6 +62,11 @@ import { DungeonCompletionConditions } from '../core/DungeonCompletionConditions
 import { MovementAuthority } from '../core/MovementAuthority';
 import { noteGroundedSample, resolveConfirmedGroundedPosition, resolveGroundedPosition } from '../core/GroundedPosition';
 import { LegendsInn } from '../core/LegendsInn';
+import {
+    LEGENDS_INN_TITUS_ENTITY_ID,
+    LEGENDS_INN_TITUS_WARNING,
+    LegendsInnGate
+} from '../core/LegendsInnGate';
 
 const db = new JsonAdapter();
 
@@ -4415,6 +4420,38 @@ export class LevelHandler {
         client.sendBitBuffer(0x76, bb);
     }
 
+    /**
+     * Refuses the portal and puts the warning in Titus's mouth.
+     *
+     * Deliberately not `sendDeniedDoorResponse`: that one speaks over the *player's*
+     * head, which is right for "I can't go in there yet" and wrong for a second
+     * character telling you something. The bubble is addressed to Titus's entity id
+     * instead, so it appears over the man standing on the path.
+     *
+     * The door itself is refused the same way every other locked door is - state
+     * LOCKED, and the pending transfer state cleared so the client is not left
+     * half-way through a door it is not going through.
+     */
+    private static sendLegendsInnPortalWarning(
+        client: Client,
+        doorId: number,
+        targetLevelRaw: string | null | undefined
+    ): void {
+        const targetLevel = LevelConfig.normalizeLevelName(targetLevelRaw) || String(targetLevelRaw ?? '').trim();
+        if (Number.isFinite(Number(doorId)) && Number(doorId) >= 0 && targetLevel) {
+            LevelHandler.sendDoorState(client, Math.round(Number(doorId)), LevelHandler.DOORSTATE_LOCKED, targetLevel);
+        }
+
+        const bb = new BitBuffer();
+        bb.writeMethod4(LEGENDS_INN_TITUS_ENTITY_ID);
+        bb.writeMethod13(LEGENDS_INN_TITUS_WARNING);
+        client.sendBitBuffer(0x76, bb);
+
+        client.lastDoorId = -1;
+        client.lastDoorTargetLevel = '';
+        client.mountTransferGraceUntil = 0;
+    }
+
     private static sendDeniedDoorResponse(
         client: Client,
         doorId: number,
@@ -5123,6 +5160,23 @@ export class LevelHandler {
             return;
         }
 
+        // Titus stops everyone once, on the way in.
+        //
+        // The refusal *is* the dialogue: the door is denied, he says his piece over
+        // his own head, and the flag he sets means the next reach for the portal
+        // goes straight through. So a player cannot be inside Legends' Inn without
+        // having been told what is at the end of it, and cannot be made to sit
+        // through it twice.
+        if (LegendsInnGate.shouldStopAtPortal(client, rawTargetLevel)) {
+            LegendsInnGate.markBriefed(client.character);
+            if (typeof client.scheduleCharacterSave === 'function') {
+                client.scheduleCharacterSave("legends' inn briefing");
+            }
+            console.log(`[LegendsInn] ${String(client.character?.name ?? '')} was stopped at the portal by Titus`);
+            LevelHandler.sendLegendsInnPortalWarning(client, doorId, rawTargetLevel);
+            return;
+        }
+
         // The way on out of a Legends' Inn stage. There is nothing drawn on this
         // door until its boss falls, so a player can only reach it by walking into
         // the spot the portal will stand in - but the refusal is what makes the
@@ -5650,6 +5704,20 @@ export class LevelHandler {
                 LevelHandler.DREADFOLD_GATE_LOCKED_MESSAGE,
                 true
             );
+            return;
+        }
+
+        // Titus's warning, applied to the transfer the client actually asks for.
+        // The door-open path above is where it normally happens, but a transfer
+        // request names its own target, so without this the whole gate is one
+        // hand-made packet away from being skipped.
+        if (!teleportOverride && LegendsInnGate.shouldStopAtPortal(client, targetLevel)) {
+            LegendsInnGate.markBriefed(client.character);
+            if (typeof client.scheduleCharacterSave === 'function') {
+                client.scheduleCharacterSave("legends' inn briefing");
+            }
+            console.log(`[LegendsInn] Transfer to ${targetLevel} held until Titus has spoken`);
+            LevelHandler.sendLegendsInnPortalWarning(client, client.lastDoorId, targetLevel);
             return;
         }
 

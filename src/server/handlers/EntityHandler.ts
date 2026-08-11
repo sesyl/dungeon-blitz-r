@@ -31,6 +31,7 @@ import {
 import { getCraftTownHomeOwnerCharacter } from '../utils/HomeVisitGuard';
 import { HomeStatueHandler } from './HomeStatueHandler';
 import { LegendsInn } from '../core/LegendsInn';
+import { LEGENDS_INN_TITUS_ENTITY_ID, LegendsInnGate } from '../core/LegendsInnGate';
 
 export class EntityHandler {
     private static readonly CLIENT_SPAWN_LEVELS = new Set<string>([
@@ -3842,6 +3843,35 @@ export class EntityHandler {
             client.entities.set(entityId, { ...entityProps });
             EntityHandler.sendEntity(client, entityProps);
         }
+
+        EntityHandler.sendLegendsInnGatekeeper(client, levelMap);
+    }
+
+    /**
+     * Titus, on the stone path under the Legends' Inn portal.
+     *
+     * He is built in code rather than listed in `npcs/CraftTown.json` because he is
+     * not level furniture: the door he stands next to is one this project added,
+     * his dialogue is dispatched on his entity id, and the gate he enforces lives
+     * beside him in `core/LegendsInnGate.ts`. Keeping the three together is what
+     * stops a stray edit to the NPC table from silently unlocking the dungeon.
+     *
+     * Sent to every visitor, including guests in someone else's keep - the warning
+     * is about the dungeon, not about whose garden it is reached from.
+     */
+    private static sendLegendsInnGatekeeper(client: Client, levelMap: Map<number, any>): void {
+        if (client.knownEntityIds.has(LEGENDS_INN_TITUS_ENTITY_ID)) {
+            return;
+        }
+
+        let entityProps = levelMap.get(LEGENDS_INN_TITUS_ENTITY_ID);
+        if (!entityProps) {
+            entityProps = LegendsInnGate.buildEntity();
+            levelMap.set(LEGENDS_INN_TITUS_ENTITY_ID, entityProps);
+        }
+
+        client.entities.set(LEGENDS_INN_TITUS_ENTITY_ID, { ...entityProps });
+        EntityHandler.sendEntity(client, entityProps);
     }
 
     /**

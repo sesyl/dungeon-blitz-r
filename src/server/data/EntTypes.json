@@ -37569,6 +37569,12 @@
         "parent": "RageGuardianServant",
         "DevStatus": "LegendsInn",
         "Powers": "LegendsInnServantSummon"
+      },
+      {
+        "EntName": "NPCLegendsInnTitus",
+        "parent": "NPCTitus2",
+        "DisplayName": "Titus",
+        "DevStatus": "LegendsInn"
       }
     ]
   }
