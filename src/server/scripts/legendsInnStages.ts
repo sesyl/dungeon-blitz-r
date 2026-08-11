@@ -36,7 +36,7 @@
  * `enemyLevelBand` therefore only decides *which* Dread mobs a stage may draw, so
  * the tour still walks from skeletons and lizards to shades and brigands.
  */
-import { MobClass } from "./legendsInnEnemies";
+import { MobClass, MobRank } from "./legendsInnEnemies";
 
 export interface LegendsInnStage {
   /** Region the dungeon belongs to, and the second half of the display name. */
@@ -68,11 +68,51 @@ export interface LegendsInnStage {
   /** What the stage's boss fights as. */
   bossClass: MobClass;
   /**
+   * The rank the boss slot is filled from. `MiniBoss` for every stage: the tour
+   * ends each leg on a Dread Rogue mini-boss rather than on the shipped dungeon
+   * boss it replaced. See `StageEnemyPlan.bossRank`.
+   */
+  bossRank?: MobRank;
+  /** Ranks the ordinary hostiles are drawn from; see `StageEnemyPlan.rankPlan`. */
+  rankPlan?: MobRank[];
+  /**
+   * Cue classes to rename by hand, on top of the bestiary swap.
+   *
+   * `PROP_BEHAVIORS` deliberately keeps spawners and traps out of the swap, so a
+   * stage whose fight is *built* on one needs a way to say "that trap, but the
+   * Legends' Inn version of it". Shazari is the only such stage: its boss room's
+   * four summoning totems now call a Dread Rogue instead of a shadow puck, which
+   * is a different EntType and therefore a different cue class.
+   */
+  cueRenames?: Record<string, string>;
+  /**
    * The EntType levels the stage may draw from - which mobs show up, not how hard
    * they hit. Every hostile is sized from the party's tier; see the file comment.
    */
   enemyLevelBand: { min: number; max: number };
 }
+
+/**
+ * Every stage ends on a Dread Rogue mini-boss.
+ *
+ * The tour is Telahair's story and Telahair was a Rogue, so the thing waiting at
+ * the end of each leg is one of his - a Dread Rogue mini-boss, wearing the Dread
+ * name (`dreadDisplayName`) on its health bar. It is still the room's boss cue:
+ * the boss room's script, its intro and the portal that opens when it falls are
+ * all unchanged.
+ */
+const STAGE_BOSS_CLASS: MobClass = "Rogue";
+const STAGE_BOSS_RANK: MobRank = "MiniBoss";
+
+/**
+ * What the last two stages are populated with.
+ *
+ * Shazari and Valhaven are the end of the road, so nothing in them fights at
+ * Minion strength: every cue is filled from the Dread Rogue Lieutenant and
+ * MiniBoss shelves, alternating, which is 20 distinct EntTypes against the 28
+ * cues the two stages place between them.
+ */
+const ELITE_ROGUE_RANKS: MobRank[] = ["Lieutenant", "MiniBoss"];
 
 /**
  * The dungeon's own tier - the `baseId` half of the level_config entry, and the
@@ -144,7 +184,8 @@ export const LEGENDS_INN_STAGES: LegendsInnStage[] = [
     outFile: "LevelsLI01.swf",
     sourceLevelName: "GoblinRiverDungeon",
     classWeights: ["Paladin", "Mage", "Rogue"],
-    bossClass: "Paladin",
+    bossClass: STAGE_BOSS_CLASS,
+    bossRank: STAGE_BOSS_RANK,
     enemyLevelBand: { min: 3, max: 11 },
   },
   {
@@ -155,7 +196,8 @@ export const LEGENDS_INN_STAGES: LegendsInnStage[] = [
     outFile: "LevelsLI02.swf",
     sourceLevelName: "SRN_Mission7",
     classWeights: ["Mage", "Paladin", "Rogue"],
-    bossClass: "Mage",
+    bossClass: STAGE_BOSS_CLASS,
+    bossRank: STAGE_BOSS_RANK,
     enemyLevelBand: { min: 9, max: 13 },
   },
   {
@@ -166,7 +208,8 @@ export const LEGENDS_INN_STAGES: LegendsInnStage[] = [
     outFile: "LevelsLI03.swf",
     sourceLevelName: "BT_Mission1",
     classWeights: ["Rogue", "Paladin", "Mage"],
-    bossClass: "Rogue",
+    bossClass: STAGE_BOSS_CLASS,
+    bossRank: STAGE_BOSS_RANK,
     enemyLevelBand: { min: 11, max: 15 },
   },
   {
@@ -177,7 +220,8 @@ export const LEGENDS_INN_STAGES: LegendsInnStage[] = [
     outFile: "LevelsLI04.swf",
     sourceLevelName: "CH_Mission3",
     classWeights: ["Paladin", "Rogue", "Mage"],
-    bossClass: "Paladin",
+    bossClass: STAGE_BOSS_CLASS,
+    bossRank: STAGE_BOSS_RANK,
     enemyLevelBand: { min: 12, max: 17 },
   },
   {
@@ -188,7 +232,8 @@ export const LEGENDS_INN_STAGES: LegendsInnStage[] = [
     outFile: "LevelsLI05.swf",
     sourceLevelName: "OMM_Mission6",
     classWeights: ["Mage", "Rogue", "Paladin"],
-    bossClass: "Mage",
+    bossClass: STAGE_BOSS_CLASS,
+    bossRank: STAGE_BOSS_RANK,
     enemyLevelBand: { min: 14, max: 19 },
   },
   {
@@ -199,7 +244,8 @@ export const LEGENDS_INN_STAGES: LegendsInnStage[] = [
     outFile: "LevelsLI06.swf",
     sourceLevelName: "EG_Mission5",
     classWeights: ["Paladin", "Mage", "Rogue"],
-    bossClass: "Paladin",
+    bossClass: STAGE_BOSS_CLASS,
+    bossRank: STAGE_BOSS_RANK,
     enemyLevelBand: { min: 16, max: 22 },
   },
   {
@@ -210,7 +256,8 @@ export const LEGENDS_INN_STAGES: LegendsInnStage[] = [
     outFile: "LevelsLI07.swf",
     sourceLevelName: "AC_Mission2",
     classWeights: ["Mage", "Paladin", "Rogue"],
-    bossClass: "Mage",
+    bossClass: STAGE_BOSS_CLASS,
+    bossRank: STAGE_BOSS_RANK,
     enemyLevelBand: { min: 18, max: 24 },
   },
   // The last two stages are the Rogue leg of the tour: three hostiles in four are
@@ -224,8 +271,12 @@ export const LEGENDS_INN_STAGES: LegendsInnStage[] = [
     levelClass: "a_Level_SDMission1",
     outFile: "LevelsLI08.swf",
     sourceLevelName: "SD_Mission1",
-    classWeights: ["Rogue", "Rogue", "Rogue", "Mage"],
-    bossClass: "Rogue",
+    classWeights: ["Rogue"],
+    bossClass: STAGE_BOSS_CLASS,
+    bossRank: STAGE_BOSS_RANK,
+    rankPlan: ELITE_ROGUE_RANKS,
+    // The boss room's four summoning totems. See patch_swz_legends_inn_servant.ts.
+    cueRenames: { ac_RageGuardianServant: "ac_LegendsInnServant" },
     enemyLevelBand: { min: 21, max: 28 },
   },
   {
@@ -235,8 +286,10 @@ export const LEGENDS_INN_STAGES: LegendsInnStage[] = [
     levelClass: "a_Level_JCMini1",
     outFile: "LevelsLI09.swf",
     sourceLevelName: "JC_Mini1",
-    classWeights: ["Rogue", "Rogue", "Rogue", "Paladin"],
-    bossClass: "Rogue",
+    classWeights: ["Rogue"],
+    bossClass: STAGE_BOSS_CLASS,
+    bossRank: STAGE_BOSS_RANK,
+    rankPlan: ELITE_ROGUE_RANKS,
     enemyLevelBand: { min: 22, max: 50 },
   },
 ];

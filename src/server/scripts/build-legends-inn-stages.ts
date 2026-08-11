@@ -79,6 +79,7 @@ import {
   PoolEntry,
   assignStageEnemies,
   createAssignmentContext,
+  dreadDisplayName,
   loadDreadClassMobPool,
   readEnemyCues,
   resolveRosterElements,
@@ -101,6 +102,9 @@ const EXIT_DOOR_IDS = [2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 /** How far to the side of the boss the portal stands, in room-local pixels. */
 const EXIT_STANDOFF = 250;
+
+/** How far behind the boss - the side the portal is not on - the chest stands. */
+const CHEST_STANDOFF = 200;
 
 interface RoomInfo {
   charId: number;
@@ -410,7 +414,7 @@ function exitAnchor(
   room: RoomInfo,
   anchor: Marker | null,
   nameById: Map<number, string>,
-): { x: number; y: number } {
+): { x: number; y: number; chest: { x: number; y: number } } {
   let base = anchor ? { x: anchor.x, y: anchor.y } : null;
   if (!base) {
     const markers = readMarkers(swf, room.charId, nameById).filter((marker) =>
@@ -421,9 +425,51 @@ function exitAnchor(
     base = markers.reduce((best, marker) => (marker.x > best.x ? marker : best), markers[0]);
   }
   const bounds = characterBounds(swf, room.charId);
-  if (!bounds) return base;
+  if (!bounds) return { ...base, chest: { x: base.x + CHEST_STANDOFF, y: base.y } };
   const middle = (bounds.xMin + bounds.xMax) / 40;
-  return { x: base.x + (base.x > middle ? -EXIT_STANDOFF : EXIT_STANDOFF), y: base.y };
+  const towardsMiddle = base.x > middle ? -1 : 1;
+  return {
+    x: base.x + towardsMiddle * EXIT_STANDOFF,
+    y: base.y,
+    // The chest stands on the far side of the boss from the portal - "behind" it,
+    // from where the party comes in - so the fight has to be finished before it can
+    // be reached, and so the two things that appear in this room do not overlap.
+    chest: { x: base.x - towardsMiddle * CHEST_STANDOFF, y: base.y },
+  };
+}
+
+/**
+ * The chest cue a stage places behind its boss.
+ *
+ * The chest is drawn from the level's own `ac_TreasureChest*` classes rather than
+ * imported, for the same reason the hostiles are: a cue is a name, the artwork
+ * comes from the EntType, and a SymbolClass entry naming a class the SWF's own ABC
+ * does not define is a ReferenceError the moment the room is built.
+ *
+ * `TreasureChestLarge` is the one we want - the big gold chest - so a stage whose
+ * ABC does not define it has one of its other chest classes renamed into it.
+ * That renames the level's own chests along with ours, which is cosmetic: they
+ * keep their loot, and the stage chest is told apart by *where it stands* (see
+ * `StageBuild.chest`), never by its EntType.
+ */
+function chestCue(
+  swf: SwfFile,
+  symbols: Array<{ id: number; name: string }>,
+  poolStrings: Set<string>,
+): { charId: number; rename: [string, string] | null } {
+  const wanted = "ac_TreasureChestLarge";
+  const exact = symbols.find((entry) => entry.name === wanted);
+  if (exact) return { charId: exact.id, rename: null };
+
+  // Best art first. Medium is a chest of the same family; Empty is the plain one
+  // the tutorial's reward chests use, and is the last resort.
+  for (const className of ["ac_TreasureChestMedium", "ac_TreasureChestEmpty", "ac_QuestTreasureChest"]) {
+    const binding = symbols.find((entry) => entry.name === className);
+    if (!binding) continue;
+    if (poolStrings.has(wanted)) return { charId: binding.id, rename: null };
+    return { charId: binding.id, rename: [className, wanted] };
+  }
+  throw new SwfLevelError("no ac_TreasureChest class in this SWF for the boss chest");
 }
 
 /**
@@ -571,6 +617,15 @@ interface StageBuild {
   spawn: { x: number; y: number } | null;
   /** Level-space point the exit door stands on, i.e. where the portal is spawned. */
   exit: { x: number; y: number };
+  /**
+   * Level-space point the boss chest stands on.
+   *
+   * The server needs it because the *class* cannot tell the stage chest from the
+   * dungeon's own decorative chests - several stages have one, and one of them
+   * shares the class after the rename. Where it stands is the only thing that is
+   * unambiguously ours.
+   */
+  chest: { x: number; y: number };
   /** What this stage's boss ended up being. The portal opens when it dies. */
   bosses: string[];
   /** Every hostile the stage now places, for the entry screen and the build log. */
@@ -603,6 +658,8 @@ function buildStage(
   const boss = findBossRoom(source, rooms, nameById, spec.bossRoom);
   const anchor = exitAnchor(source, boss.room, boss.anchor, nameById);
   const door = freeDoorClass(source, symbols, rooms, nameById);
+  // Decided before the trim, because the trim has to be told to keep it.
+  const chest = chestCue(source, symbols, new Set(readAbcStrings(source)));
 
   // Where the player lands coming in. Dungeons spawn arrivals on a_PlayerSpawn.
   let spawn: { x: number; y: number } | null = null;
@@ -632,7 +689,13 @@ function buildStage(
   );
   const enemies = assignStageEnemies(
     cues,
-    { classWeights: spec.classWeights, levelBand: spec.enemyLevelBand, bossClass: spec.bossClass },
+    {
+      classWeights: spec.classWeights,
+      levelBand: spec.enemyLevelBand,
+      bossClass: spec.bossClass,
+      bossRank: spec.bossRank,
+      rankPlan: spec.rankPlan,
+    },
     pool,
     context,
     new Set(symbols.filter((entry) => entry.name.startsWith("ac_")).map((entry) => entry.name.slice(3))),
@@ -666,6 +729,7 @@ function buildStage(
   const fontsBefore = source.tags.filter((tag) => FONT_TAGS.has(tag.code)).length;
   const keep = new Set(reachable);
   for (const id of collectDependencies(source, [door.charId])) keep.add(id);
+  for (const id of collectDependencies(source, [chest.charId])) keep.add(id);
   trim(source, keep);
   const fontsAfter = source.tags.filter((tag) => FONT_TAGS.has(tag.code)).length;
   if (fontsAfter !== fontsBefore) {
@@ -678,10 +742,16 @@ function buildStage(
   // Flash cannot build a MovieClip subclass out of a shape (Error #2136).
   const boundable = new Set(source.tags.map(characterId).filter((id): id is number => id !== null));
 
-  // 2. Place the exit door. Only the door - a door marker is drawn hidden, so the
-  //    boss room gains nothing visible here. What the player eventually walks
-  //    into is spawned by the server once the boss is down, on this same point.
-  hoistBefore(source, new Set([door.charId]), boss.room.charId);
+  // 2. Place the exit door and the boss chest.
+  //
+  //    The door is *only* a door - a door marker is drawn hidden, so the boss room
+  //    gains nothing visible from it. What the player eventually walks into is
+  //    spawned by the server once the boss is down, on this same point.
+  //
+  //    The chest is a real cue and is there from the moment the room loads, behind
+  //    the boss: it cannot be reached until the fight is over, and it is what the
+  //    stage actually pays out (core/LegendsInnChest.ts).
+  hoistBefore(source, new Set([door.charId, chest.charId]), boss.room.charId);
 
   const roomIndex = source.tags.findIndex(
     (tag) => tag.code === TAG_DEFINE_SPRITE && tag.data.readUInt16LE(0) === boss.room.charId,
@@ -699,6 +769,7 @@ function buildStage(
     showFrame === -1 ? inner.length - 1 : showFrame,
     0,
     buildPlaceObject2({ depth, charId: door.charId, x: portalAt.x, y: portalAt.y }),
+    buildPlaceObject2({ depth: depth + 1, charId: chest.charId, x: anchor.chest.x, y: anchor.chest.y }),
   );
   source.tags[roomIndex] = rebuildSprite(roomTag, inner);
 
@@ -742,9 +813,25 @@ function buildStage(
   //    otherwise the stage's new boss fights under the name of the one it replaced.
   const bossNames = readBossDisplayNames(path.join(CLIENT_CONTENT, spec.swf), boss.room.className);
   const poolStrings = new Set(readAbcStrings(source));
-  const renames = new Map(enemies.renames);
+  // The chest class rides the same mechanism, and has to reach both the pool and
+  // the SymbolClass table for exactly the reason the paragraph above gives.
+  const classRenames = new Map(enemies.renames);
+  if (chest.rename) classRenames.set(chest.rename[0], chest.rename[1]);
+  for (const [from, to] of Object.entries(spec.cueRenames ?? {})) {
+    if (!symbols.some((entry) => entry.name === from)) {
+      throw new SwfLevelError(`${spec.levelName}: no ${from} to rename to ${to}`);
+    }
+    classRenames.set(from, to);
+  }
+  const renames = new Map(classRenames);
   bossNames.forEach((authored, index) => {
-    const replacement = enemies.roster.filter((row) => row.rank === "Boss")[index]?.displayName;
+    // Keyed off the boss *cue*, not the rank: the stages end on Dread Rogue
+    // mini-bosses now, so `rank === "Boss"` no longer identifies the thing whose
+    // name belongs on the health bar. Stage 9 was the visible symptom - its plate
+    // kept announcing the shipped dungeon's boss because no roster row matched.
+    const replacement = dreadDisplayName(
+      enemies.roster.filter((row) => row.bossSlot)[index]?.displayName ?? "",
+    );
     if (!replacement || replacement === authored) return;
     // renameAbcStrings refuses to create a name the pool already holds, and a
     // clash here would abort a build over a health-bar caption.
@@ -769,7 +856,7 @@ function buildStage(
     source,
     symbols
       .filter((entry) => boundable.has(entry.id))
-      .map((entry) => ({ id: entry.id, name: enemies.renames.get(entry.name) ?? entry.name })),
+      .map((entry) => ({ id: entry.id, name: classRenames.get(entry.name) ?? entry.name })),
   );
   assertDefinitionOrder(source, spec.levelName);
   assertBindingsMatchTags(source, spec.levelName);
@@ -794,6 +881,7 @@ function buildStage(
     exitDoorId: door.doorId,
     spawn,
     exit,
+    chest: { x: boss.room.x + anchor.chest.x, y: boss.room.y + anchor.chest.y },
     bosses: enemies.bosses,
     roster: enemies.roster,
     roomCounts,
@@ -1029,6 +1117,7 @@ function writeStageData(builds: StageBuild[]): void {
     // was derived from so the two can never disagree.
     monsterBonusLevels: monsterBonusLevels(build),
     portal: { x: Math.round(build.exit.x), y: Math.round(build.exit.y) },
+    chest: { x: Math.round(build.chest.x), y: Math.round(build.chest.y) },
     bosses: build.bosses,
     enemies: [...new Set(build.roster.map((row) => row.to))],
   }));

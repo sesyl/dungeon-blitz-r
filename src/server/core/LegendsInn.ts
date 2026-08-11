@@ -49,6 +49,8 @@ export interface LegendsInnStageInfo {
     returnDoorId: number;
     monsterBonusLevels: number;
     portal: { x: number; y: number };
+    /** Where the boss chest was placed. See `LegendsInnChest.isStageChest`. */
+    chest: { x: number; y: number };
     bosses: string[];
     enemies: string[];
 }
@@ -117,6 +119,81 @@ export class LegendsInn {
     static getStage(levelName: string | null | undefined): LegendsInnStageInfo | null {
         const normalized = LevelConfig.normalizeLevelName(levelName) || String(levelName ?? '').trim();
         return LegendsInn.stagesByLevel.get(normalized) ?? null;
+    }
+
+    /**
+     * The stage a character is up to, 1-based.
+     *
+     * Legends' Inn is nine dungeons walked in one sitting, which is a long sitting:
+     * a disconnect, a crash or a mistaken step back through the entrance used to
+     * put the whole run back at stage 1. So the stage a character last stood in is
+     * remembered on the character, and the Craft Town portal reads it.
+     *
+     * Clamped to a stage that actually exists, so a save written when the dungeon
+     * was longer - or a hand-edited one - cannot send a player to a level that is
+     * not built.
+     */
+    static getCheckpointStage(character: unknown): number {
+        const stages = LegendsInn.getStages().length;
+        if (stages === 0) {
+            return 1;
+        }
+        const stored = Math.round(Number((character as Record<string, unknown> | null)?.legendsInnStage ?? 0));
+        return Number.isFinite(stored) && stored >= 1 ? Math.min(stored, stages) : 1;
+    }
+
+    /** The level a character entering Legends' Inn should land in. */
+    static getCheckpointLevelName(character: unknown): string | null {
+        const stage = LegendsInn.getStages().find(
+            (entry) => Math.round(Number(entry.stage)) === LegendsInn.getCheckpointStage(character)
+        );
+        return stage?.levelName ?? LegendsInn.getStages()[0]?.levelName ?? null;
+    }
+
+    /**
+     * Records that a character reached a stage. Returns true if the save moved.
+     *
+     * Only ever forwards. A party member who walks back through the entrance door
+     * of stage 5 and re-enters must not have their checkpoint dragged to stage 1 by
+     * the arrival that follows, and a player helping a friend through an earlier
+     * stage keeps their own progress.
+     */
+    static noteStageEntered(client: Client): boolean {
+        const stage = LegendsInn.getStage(client?.currentLevel);
+        const character = client?.character as Record<string, unknown> | undefined;
+        if (!stage || !character) {
+            return false;
+        }
+
+        const reached = Math.max(1, Math.round(Number(stage.stage) || 1));
+        if (LegendsInn.getCheckpointStage(character) >= reached) {
+            return false;
+        }
+        character.legendsInnStage = reached;
+        console.log(`[LegendsInn] ${String(character.name ?? '')} checkpoint -> stage ${reached}`);
+        return true;
+    }
+
+    /**
+     * Forgets a character's progress, so the next visit starts at stage 1.
+     *
+     * Called when the last stage is cleared: the tour is over, and the reward for
+     * finishing it is not a permanent shortcut past the other eight.
+     */
+    static clearCheckpoint(character: unknown): boolean {
+        const record = character as Record<string, unknown> | null;
+        if (!record || LegendsInn.getCheckpointStage(record) <= 1) {
+            return false;
+        }
+        record.legendsInnStage = 1;
+        return true;
+    }
+
+    /** True for the stage that ends the dungeon. */
+    static isFinalStage(levelName: string | null | undefined): boolean {
+        const stage = LegendsInn.getStage(levelName);
+        const stages = LegendsInn.getStages();
+        return Boolean(stage) && Math.round(Number(stage!.stage)) === stages.length;
     }
 
     static isStageLevel(levelName: string | null | undefined): boolean {
@@ -303,8 +380,15 @@ export class LegendsInn {
         LegendsInn.clearPendingBossState(scopeKey);
         console.log(`[LegendsInn] ${stage.levelName} portal opened for scope ${scopeKey}`);
 
+        const isFinal = LegendsInn.isFinalStage(stage.levelName);
         for (const session of GlobalState.getSessionsInLevelScope(scopeKey)) {
             LegendsInn.sendPortal(session, stage);
+            // The tour is over. Everyone who saw the last boss fall starts the next
+            // visit at Wolf's End again - the checkpoint is there to survive a
+            // disconnect, not to hand out a permanent shortcut to stage 9.
+            if (isFinal && LegendsInn.clearCheckpoint(session.character) && typeof session.scheduleCharacterSave === 'function') {
+                session.scheduleCharacterSave("legends' inn run completed");
+            }
         }
     }
 
@@ -318,7 +402,18 @@ export class LegendsInn {
      */
     static onPlayerSpawned(client: Client): void {
         const stage = LegendsInn.getStage(client?.currentLevel);
-        if (!stage || !LegendsInn.isPortalOpen(getClientLevelScope(client))) {
+        if (!stage) {
+            return;
+        }
+
+        // Arrival is what the checkpoint is taken from, not the clear: a player who
+        // drops out fighting stage 5's boss comes back to stage 5 rather than to the
+        // start of a stage they had already walked.
+        if (LegendsInn.noteStageEntered(client) && typeof client.scheduleCharacterSave === 'function') {
+            client.scheduleCharacterSave("legends' inn stage checkpoint");
+        }
+
+        if (!LegendsInn.isPortalOpen(getClientLevelScope(client))) {
             return;
         }
         LegendsInn.sendPortal(client, stage);
@@ -335,6 +430,11 @@ export class LegendsInn {
         const scopeKey = String(levelScope ?? '');
         LegendsInn.openScopes.delete(scopeKey);
         LegendsInn.clearPendingBossState(scopeKey);
+        // The boss chest is part of the same run: a fresh party in a reused
+        // instance breaks a fresh chest, and one that stayed claimed would pay
+        // nobody. Imported lazily for the same reason sendPortal's import is.
+        const { resetChestOpenings } = require('./LegendsInnChest') as typeof import('./LegendsInnChest');
+        resetChestOpenings(scopeKey);
     }
 
     /** Drops a scope's half-finished boss bookkeeping and stops its grace period. */

@@ -57752,6 +57752,7 @@
 		<Width>200</Width>
 		<Height>250</Height>
 		<Behavior>NPC</Behavior>
+		<Flying>True</Flying>
 		<EquippedGear/>
 		<GfxType>
 			<AnimClass>a__NephitPortal</AnimClass>
@@ -57759,5 +57760,13 @@
 			<Shadow>None</Shadow>
 			<AnimScale>1.0</AnimScale>
 		</GfxType>
+	</EntType>
+	<EntType EntName="LegendsInnServant" parent="RageGuardianServant">
+		<DevStatus>LegendsInn</DevStatus>
+		<Powers>LegendsInnServantSummon</Powers>
+	</EntType>
+	<EntType EntName="LegendsInnServantHard" parent="RageGuardianServant">
+		<DevStatus>LegendsInn</DevStatus>
+		<Powers>LegendsInnServantSummon</Powers>
 	</EntType>
 </EntTypes>

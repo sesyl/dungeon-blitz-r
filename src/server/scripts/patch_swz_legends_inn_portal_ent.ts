@@ -57,6 +57,19 @@ const ENT_FIELDS: Array<[string, string]> = [
   ["Width", "200"],
   ["Height", "250"],
   ["Behavior", "NPC"],
+  // Gravity off. The portal is placed by the server on a point derived from the
+  // boss room's `am_Boss` anchor, and an entity dropped onto that point is at the
+  // mercy of whatever collision happens to be under it: the client gives a
+  // server-spawned entity no floor snap, so a rift that lands a few pixels off the
+  // walkable surface - or beside it, since the portal stands off to one side of
+  // the boss - falls out of the bottom of the dungeon and is gone.
+  //
+  // `Flying` is the client's own "this body ignores gravity" flag, which is what
+  // makes a hovering rift the right shape for it rather than a workaround: the
+  // portal now stays exactly where it is put in all nine stages. It never chases
+  // anything the way a flying *mob* would, because `Behavior NPC` has no brain
+  // that moves and `Speed` is 0.
+  ["Flying", "True"],
 ];
 
 const GFX_FIELDS: Array<[string, string]> = [

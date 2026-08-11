@@ -37555,7 +37555,20 @@
         "Speed": "0",
         "Width": "200",
         "Height": "250",
-        "Behavior": "NPC"
+        "Behavior": "NPC",
+        "Flying": "True"
+      },
+      {
+        "EntName": "LegendsInnServant",
+        "parent": "RageGuardianServant",
+        "DevStatus": "LegendsInn",
+        "Powers": "LegendsInnServantSummon"
+      },
+      {
+        "EntName": "LegendsInnServantHard",
+        "parent": "RageGuardianServant",
+        "DevStatus": "LegendsInn",
+        "Powers": "LegendsInnServantSummon"
       }
     ]
   }

@@ -6153,11 +6153,11 @@
         "count": 4
       },
       {
-        "enemyType": "CastleLizard2Hard",
+        "enemyType": "BanditGreatRogueHard",
         "count": 1
       },
       {
-        "enemyType": "DogChieftainHard",
+        "enemyType": "CastleLizard2Hard",
         "count": 1
       },
       {
@@ -6236,7 +6236,7 @@
         "count": 1
       },
       {
-        "enemyType": "MeylourBossMageHard",
+        "enemyType": "GreaterSkeletonRogueHard",
         "count": 1
       }
     ],
@@ -6262,8 +6262,7 @@
     "elements": [
       "Death",
       "Fire",
-      "Air",
-      "Ice"
+      "Air"
     ],
     "enemyTypes": [
       {
@@ -6291,19 +6290,19 @@
         "count": 6
       },
       {
-        "enemyType": "DemonMalignerHard",
-        "count": 1
-      },
-      {
-        "enemyType": "GreaterSkeletonRogueHard",
-        "count": 1
-      },
-      {
         "enemyType": "GreatLizardMasterHard",
         "count": 1
       },
       {
-        "enemyType": "JackalChieftainHard",
+        "enemyType": "InfusedSkeletonRogue2Hard",
+        "count": 1
+      },
+      {
+        "enemyType": "InfusedSkeletonRogueHard",
+        "count": 1
+      },
+      {
+        "enemyType": "SpiritJackalRogueHard",
         "count": 1
       }
     ],
@@ -6426,7 +6425,7 @@
         "count": 1
       },
       {
-        "enemyType": "LionLordHard",
+        "enemyType": "MeylourEnthralledRogueHard",
         "count": 1
       },
       {
@@ -6455,9 +6454,10 @@
   "LegendsInn5Hard": {
     "elements": [
       "Ice",
-      "Life",
       "Fire",
-      "Death"
+      "Life",
+      "Death",
+      "Earth"
     ],
     "enemyTypes": [
       {
@@ -6497,10 +6497,6 @@
         "count": 6
       },
       {
-        "enemyType": "AshenDryadWizardHard",
-        "count": 1
-      },
-      {
         "enemyType": "BanditRogueHard",
         "count": 1
       },
@@ -6514,6 +6510,10 @@
       },
       {
         "enemyType": "MeylourEnthralledMageHard",
+        "count": 1
+      },
+      {
+        "enemyType": "ScarabRogueHard",
         "count": 1
       },
       {
@@ -6539,17 +6539,17 @@
     "elements": [
       "Fire",
       "Death",
-      "Ice",
       "Air",
+      "Ice",
       "Life"
     ],
     "enemyTypes": [
       {
-        "enemyType": "CastleLizard2Hard",
+        "enemyType": "CastleLizardBanner1Hard",
         "count": 7
       },
       {
-        "enemyType": "CastleLizardBanner2Hard",
+        "enemyType": "ShadeMageHard",
         "count": 7
       },
       {
@@ -6561,11 +6561,11 @@
         "count": 7
       },
       {
-        "enemyType": "CastleLizard3Hard",
+        "enemyType": "CastleLizard1Hard",
         "count": 6
       },
       {
-        "enemyType": "ImperialMagiHard",
+        "enemyType": "CastleLizardBanner2Hard",
         "count": 6
       },
       {
@@ -6573,39 +6573,31 @@
         "count": 6
       },
       {
+        "enemyType": "CastleLizard2Hard",
+        "count": 5
+      },
+      {
         "enemyType": "CastleLizardHeavy2Hard",
         "count": 5
       },
       {
-        "enemyType": "ImperialMagi2Hard",
-        "count": 5
-      },
-      {
-        "enemyType": "ShadeMageHard",
-        "count": 5
-      },
-      {
-        "enemyType": "SpiritCougarWarriorHard",
+        "enemyType": "ImperialMagiHard",
         "count": 5
       },
       {
         "enemyType": "OutlanderRogueHard",
+        "count": 5
+      },
+      {
+        "enemyType": "DeepLizardHeavy2Hard",
         "count": 3
-      },
-      {
-        "enemyType": "CastleLizard1Hard",
-        "count": 1
-      },
-      {
-        "enemyType": "CastleLizardBanner1Hard",
-        "count": 1
       },
       {
         "enemyType": "CastleLizardMasterHard",
         "count": 1
       },
       {
-        "enemyType": "OutlanderBossHard",
+        "enemyType": "DreamJackalChieftainHard",
         "count": 1
       }
     ],
@@ -6627,11 +6619,11 @@
   "LegendsInn7Hard": {
     "elements": [
       "Life",
-      "Fire",
-      "Air",
       "Ice",
-      "Earth",
-      "Death"
+      "Air",
+      "Death",
+      "Fire",
+      "Earth"
     ],
     "enemyTypes": [
       {
@@ -6647,7 +6639,7 @@
         "count": 7
       },
       {
-        "enemyType": "DeepLizardHeavyHard",
+        "enemyType": "FirePriest2Hard",
         "count": 7
       },
       {
@@ -6667,7 +6659,7 @@
         "count": 3
       },
       {
-        "enemyType": "DeepLizardHeavy2Hard",
+        "enemyType": "DeepLizardHeavyHard",
         "count": 2
       },
       {
@@ -6679,7 +6671,7 @@
         "count": 2
       },
       {
-        "enemyType": "FirePriestWizardHard",
+        "enemyType": "InfusedSkeletonRogueHard",
         "count": 1
       },
       {
@@ -6707,54 +6699,50 @@
   },
   "LegendsInn8Hard": {
     "elements": [
-      "Ice",
-      "Fire",
       "Death",
-      "Air"
+      "Ice",
+      "Air",
+      "Life"
     ],
     "enemyTypes": [
       {
-        "enemyType": "ImperialMagi2Hard",
+        "enemyType": "BanditGreatRogueHard",
         "count": 9
-      },
-      {
-        "enemyType": "ShadowPuppetHard",
-        "count": 9
-      },
-      {
-        "enemyType": "BrigandCutthroatHard",
-        "count": 7
-      },
-      {
-        "enemyType": "CastleLizard3Hard",
-        "count": 7
-      },
-      {
-        "enemyType": "BrigandCutthroat2Hard",
-        "count": 5
-      },
-      {
-        "enemyType": "SpiritDogRogueHard",
-        "count": 5
-      },
-      {
-        "enemyType": "BrigandCryomancerHard",
-        "count": 4
-      },
-      {
-        "enemyType": "CastleLizard2Hard",
-        "count": 4
       },
       {
         "enemyType": "GreaterDemonMalignerHard",
+        "count": 9
+      },
+      {
+        "enemyType": "InfusedSkeletonRogueHard",
+        "count": 7
+      },
+      {
+        "enemyType": "SpiritDogRogueHard",
+        "count": 7
+      },
+      {
+        "enemyType": "DreamJackalChieftainHard",
+        "count": 5
+      },
+      {
+        "enemyType": "MeylourEnthralledRogueHard",
+        "count": 5
+      },
+      {
+        "enemyType": "BrigandCutthroatHard",
         "count": 4
       },
       {
-        "enemyType": "CastleLizard1Hard",
-        "count": 2
+        "enemyType": "InfusedSkeletonRogue2Hard",
+        "count": 4
       },
       {
-        "enemyType": "RisenBandit2Hard",
+        "enemyType": "ShadowPuppetHard",
+        "count": 4
+      },
+      {
+        "enemyType": "BrigandCutthroat2Hard",
         "count": 1
       },
       {
@@ -6783,50 +6771,46 @@
   },
   "LegendsInn9Hard": {
     "elements": [
-      "Ice",
       "Death",
-      "Fire",
-      "Life"
+      "Ice",
+      "Life",
+      "Earth"
     ],
     "enemyTypes": [
       {
-        "enemyType": "SpiritJackalPackmateHard",
+        "enemyType": "GreaterSkeletonRogueHard",
         "count": 3
       },
       {
-        "enemyType": "BanditRogue2Hard",
+        "enemyType": "BanditGreatRogueHard",
         "count": 2
-      },
-      {
-        "enemyType": "CastleLizard1Hard",
-        "count": 2
-      },
-      {
-        "enemyType": "CastleLizard2Hard",
-        "count": 2
-      },
-      {
-        "enemyType": "CastleLizard3Hard",
-        "count": 2
-      },
-      {
-        "enemyType": "ShadowPuppetHard",
-        "count": 2
-      },
-      {
-        "enemyType": "SpiritGreatLizardWarriorHard",
-        "count": 2
-      },
-      {
-        "enemyType": "SpiritImperialFootman3Hard",
-        "count": 2
-      },
-      {
-        "enemyType": "BanditBossHard",
-        "count": 1
       },
       {
         "enemyType": "BanditRogueHard",
+        "count": 2
+      },
+      {
+        "enemyType": "InfusedSkeletonRogue2Hard",
+        "count": 2
+      },
+      {
+        "enemyType": "JackalRogueHard",
+        "count": 2
+      },
+      {
+        "enemyType": "MeylourEnthralledRogueHard",
+        "count": 2
+      },
+      {
+        "enemyType": "OutlanderRogueHard",
+        "count": 2
+      },
+      {
+        "enemyType": "SpiritDogRogueHard",
+        "count": 2
+      },
+      {
+        "enemyType": "BanditRogue2Hard",
         "count": 1
       },
       {
@@ -6834,11 +6818,15 @@
         "count": 1
       },
       {
-        "enemyType": "JackalRogueHard",
+        "enemyType": "InfusedSkeletonRogueHard",
         "count": 1
       },
       {
-        "enemyType": "OutlanderRogueHard",
+        "enemyType": "ScarabRogueHard",
+        "count": 1
+      },
+      {
+        "enemyType": "ShadowPuppetHard",
         "count": 1
       },
       {
@@ -6850,7 +6838,7 @@
         "count": 1
       },
       {
-        "enemyType": "SpiritDogRogueHard",
+        "enemyType": "SpiritJackalRogueHard",
         "count": 1
       }
     ],

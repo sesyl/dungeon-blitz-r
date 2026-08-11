@@ -65,6 +65,71 @@ const RANKS: MobRank[] = ["Minion", "Lieutenant", "MiniBoss", "Boss"];
 const PROP_CUES = /^(TreasureChest|Vigil|CaveVigil|EmberBush|DoorPortal|NephitSpireMarker|DesertMimicSpire|Mimic$)/;
 
 /**
+ * Behaviours that mean "machinery", not "creature".
+ *
+ * The name list above only ever caught the props somebody had already tripped
+ * over, and it missed the ones that matter most: **spawners and traps**. Shazari's
+ * boss room is the case that made this a rule rather than a list. Its four
+ * `am_Adds` markers are `RageGuardianServant` - `Behavior ServantSpawner`, a
+ * floating totem that summons pucks - and the boss script kills all four when the
+ * fight starts, then revives one every twelve seconds to call another wave.
+ *
+ * Swapped for a walking Rogue, that fight stopped making sense: the traps were
+ * gone, and what the player saw instead was four rogues lying dead on the floor
+ * from the first second, standing back up one at a time. Left alone, the totems
+ * are traps again and the small rogues they summon are the ones the stage's own
+ * bestiary swap already provides.
+ *
+ * The same is true of every other entry here - spike traps, vigil emitters, power
+ * markers, cannonballs, summoned pets. They have an `EntRank` and are placed like
+ * enemies, but a room script drives them by name and by what they *do*, and there
+ * is no body to put a Rogue's skeleton on.
+ *
+ * Deliberately **not** listed: `Wisp`, `Poltergeist`, `BannerBearer`, `SandWorm`,
+ * `PolarSentry`, `Revivable*` and the `DramaTargetable*` pair. Those float, burrow
+ * or rise from the dead, but each is a real hostile with a health pool that a
+ * player fights, so each is fair game for the swap.
+ */
+const PROP_BEHAVIORS = new Set([
+  "Aura",
+  "BeehiveSpawner",
+  "Bush",
+  "CombatSwitch",
+  "DarkOrbType",
+  "Decoy",
+  "DesertLarva",
+  "DragonPortal",
+  "DragonSoul",
+  "Dummy",
+  "Ember",
+  "FollowPet",
+  "GoblinCannon",
+  "HomeDummy",
+  "Homing",
+  "Kraken",
+  "LarvaSpawner",
+  "Mushroom",
+  "NephitEye",
+  "Parrot",
+  "PermafrostClone",
+  "PowerMarker",
+  "PowerMarkerCombat",
+  "ScalingFollowPet",
+  "ServantSpawner",
+  "Spark",
+  "Spawner",
+  "SpawnerNephit",
+  "SpikeTrap",
+  "TreasureChest",
+  "UndeadPet",
+  "UndeadPetRanged",
+  "VigilFountain",
+  "VigilStraight",
+  "VigilTarget",
+  "VigilWaterfall",
+]);
+
+/**
  * Where a slot may look when its own rank is empty.
  *
  * A boss slot only ever takes a boss: a boss room's script, its health bar and
@@ -79,6 +144,22 @@ const RANK_FALLBACKS: Record<MobRank, MobRank[]> = {
   MiniBoss: ["MiniBoss", "Lieutenant"],
   Boss: ["Boss"],
 };
+
+/**
+ * What a Legends' Inn hostile is called on screen.
+ *
+ * A Dread EntType carries the same `DisplayName` as the one it was cloned from -
+ * `BanditBossHard` is "Svagg" exactly as `BanditBoss` is - so there is no "Dread
+ * name" sitting in the data to read. The Dread prefix is the label the rest of the
+ * game already uses for a Dread thing ("Dread Legends' Inn" in presence), so the
+ * stage's bosses wear it too: a boss plate that says "Dread Hive Guardian" reads
+ * as this dungeon's, where a bare "Hive Guardian" reads as Shazari's.
+ */
+export function dreadDisplayName(displayName: string): string {
+  const name = String(displayName ?? "").trim();
+  if (!name) return "";
+  return /^dread\b/i.test(name) ? name : `Dread ${name}`;
+}
 
 function readEntTypes(dataDir: string): Map<string, Record<string, string>> {
   const raw = fs.readFileSync(path.join(dataDir, "EntTypes.json"), "utf8").replace(/^﻿/, "");
@@ -238,6 +319,7 @@ export function readEnemyCues(dataDir: string, classNames: string[]): EnemyCue[]
     // client will build a hostile out of - a door target, a group anchor, an
     // effect. Those are left alone for the same reason the props above are.
     if (!ent || !rank) continue;
+    if (PROP_BEHAVIORS.has(inheritedField(byName, entName, "Behavior"))) continue;
     cues.push({ className, entName, rank, flying: /true/i.test(inheritedField(byName, entName, "Flying")) });
   }
 
@@ -251,15 +333,44 @@ export interface StageEnemyPlan {
   levelBand: { min: number; max: number };
   /** What the stage's boss fights as. */
   bossClass: MobClass;
+  /**
+   * The rank the stage's boss slot is filled from.
+   *
+   * Legends' Inn ends every stage on a Dread Rogue mini-boss rather than on a
+   * shipped dungeon boss, so this is `MiniBoss` throughout. The boss *cue* is
+   * unchanged - it is still the room's boss, still drives the boss room's script
+   * and still opens the portal - only what stands in it is drawn from a different
+   * shelf of the roster.
+   */
+  bossRank?: MobRank;
+  /**
+   * Ranks the stage's ordinary hostiles are drawn from, cycled the way
+   * `classWeights` is, instead of the rank each cue was authored at.
+   *
+   * The last two stages of the tour are meant to be wall-to-wall elites, so their
+   * minion cues are filled from the Lieutenant and MiniBoss shelves and nothing in
+   * them fights at Minion strength.
+   */
+  rankPlan?: MobRank[];
 }
 
 export interface AssignmentContext {
   /** EntTypes already handed out in earlier stages, so the tour keeps introducing new faces. */
   usedGlobally: Set<string>;
+  /**
+   * EntTypes that have already ended a stage.
+   *
+   * Kept apart from `usedGlobally` because a boss slot needs a much stronger
+   * preference than an ordinary one. There are eight Dread Rogue mini-bosses in
+   * the game and ten boss cues across the nine stages, and the last two stages
+   * spend several of those eight on their own rank-and-file; without this, three
+   * different stages ended on the same face.
+   */
+  usedAsBoss: Set<string>;
 }
 
 export function createAssignmentContext(): AssignmentContext {
-  return { usedGlobally: new Set<string>() };
+  return { usedGlobally: new Set<string>(), usedAsBoss: new Set<string>() };
 }
 
 /**
@@ -283,15 +394,35 @@ function scoreCandidate(
   context: AssignmentContext,
   usedInStage: Set<string>,
   reservedBaseNames: Set<string>,
+  bossSlot: boolean,
+  bossDisplayNamesInStage: Set<string>,
 ): number {
   if (usedInStage.has(entry.entName)) return Number.POSITIVE_INFINITY;
+  // Two boss cues in one room - Bridgetown's twins - must not answer to the same
+  // plate. `InfusedSkeletonRogue` and `InfusedSkeletonRogue2` are different
+  // EntTypes with one display name between them, and picking both left the second
+  // twin fighting under the shipped dungeon's name, because a rename target the
+  // ABC pool already holds is refused rather than duplicated.
+  if (bossSlot && bossDisplayNamesInStage.has(entry.displayName)) return Number.POSITIVE_INFINITY;
   // A name the stage already exports cannot be a rename target: the ABC pool
   // would hold it twice, and renameAbcStrings refuses that outright rather than
   // let two classes answer to one name.
   if (reservedBaseNames.has(entry.baseEntName)) return Number.POSITIVE_INFINITY;
 
-  const allowedRanks = RANK_FALLBACKS[desiredRank];
+  // A boss slot takes its rank exactly. Every other slot may borrow from a
+  // neighbouring rank because the roster is thin in places, but "the stage ends on
+  // a Dread Rogue mini-boss" is the rule the dungeon is built around, and there are
+  // ten boss cues against eight mini-bosses: without this the last two stages ran
+  // out of unused faces and quietly ended on a Lieutenant instead. Repeating a
+  // mini-boss is the right trade - see the reuse penalty below, which keeps the
+  // repeats to the two the arithmetic forces.
+  const allowedRanks = bossSlot ? [desiredRank] : RANK_FALLBACKS[desiredRank];
   const rankIndex = allowedRanks.indexOf(entry.rank);
+  // Class is exact for a boss slot too, for the same reason the rank is: given the
+  // choice between a Rogue mini-boss the tour has already used and an unused
+  // *Paladin* one, the score alone picks the Paladin, and the stage stops being
+  // the Rogue fight the dungeon's story is about.
+  if (bossSlot && entry.mobClass !== desiredClass) return Number.POSITIVE_INFINITY;
   if (rankIndex === -1) return Number.POSITIVE_INFINITY;
 
   const bandMiss =
@@ -305,7 +436,11 @@ function scoreCandidate(
     (entry.mobClass === desiredClass ? 0 : 400) +
     rankIndex * 120 +
     bandMiss * 6 +
-    (context.usedGlobally.has(entry.entName) ? 90 : 0)
+    (context.usedGlobally.has(entry.entName) ? 90 : 0) +
+    // Bigger than every other term put together, so a stage ends on a face the
+    // tour has not ended on before whenever one is left - but a penalty rather
+    // than a bar, because there are fewer Dread Rogue mini-bosses than boss cues.
+    (bossSlot && context.usedAsBoss.has(entry.entName) ? 5_000 : 0)
   );
 }
 
@@ -317,12 +452,14 @@ function pick(
   context: AssignmentContext,
   usedInStage: Set<string>,
   reservedBaseNames: Set<string>,
+  bossSlot: boolean,
+  bossDisplayNamesInStage: Set<string>,
 ): PoolEntry {
   let best: PoolEntry | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
 
   for (const entry of pool) {
-    const score = scoreCandidate(entry, desiredClass, desiredRank, plan, context, usedInStage, reservedBaseNames);
+    const score = scoreCandidate(entry, desiredClass, desiredRank, plan, context, usedInStage, reservedBaseNames, bossSlot, bossDisplayNamesInStage);
     if (score < bestScore) {
       best = entry;
       bestScore = score;
@@ -344,7 +481,20 @@ export interface EnemyAssignment {
    * `to` is the *Dread* name, because that is what the client reports and what
    * every server-side lookup - bosses, catalogs, elements - is keyed on.
    */
-  roster: Array<{ from: string; to: string; displayName: string; mobClass: MobClass; rank: MobRank; level: number }>;
+  roster: Array<{
+    from: string;
+    to: string;
+    displayName: string;
+    mobClass: MobClass;
+    rank: MobRank;
+    level: number;
+    /**
+     * Whether this row filled the room's *boss* cue. Not the same question as
+     * `rank === "Boss"` any more: the stages end on mini-bosses, and the boss
+     * plate has to follow the cue rather than the rank.
+     */
+    bossSlot: boolean;
+  }>;
   /** What the stage's boss became, in its Dread name. The portal watches for these. */
   bosses: string[];
 }
@@ -370,11 +520,17 @@ export function assignStageEnemies(
   const roster: EnemyAssignment["roster"] = [];
   const bosses: string[] = [];
   const usedInStage = new Set<string>();
+  const bossDisplayNamesInStage = new Set<string>();
 
-  const take = (cue: EnemyCue, desiredClass: MobClass): void => {
-    const entry = pick(pool, desiredClass, cue.rank, plan, context, usedInStage, reservedBaseNames);
+  const take = (cue: EnemyCue, desiredClass: MobClass, desiredRank: MobRank): void => {
+    const bossSlot = cue.rank === "Boss";
+    const entry = pick(pool, desiredClass, desiredRank, plan, context, usedInStage, reservedBaseNames, bossSlot, bossDisplayNamesInStage);
     usedInStage.add(entry.entName);
     context.usedGlobally.add(entry.entName);
+    if (bossSlot) {
+      context.usedAsBoss.add(entry.entName);
+      bossDisplayNamesInStage.add(entry.displayName);
+    }
     renames.set(cue.className, `ac_${entry.baseEntName}`);
     roster.push({
       from: cue.entName,
@@ -383,18 +539,22 @@ export function assignStageEnemies(
       mobClass: entry.mobClass,
       rank: entry.rank,
       level: entry.level,
+      bossSlot: cue.rank === "Boss",
     });
     if (cue.rank === "Boss") bosses.push(entry.entName);
   };
 
   for (const cue of cues) {
-    if (cue.rank === "Boss") take(cue, plan.bossClass);
+    if (cue.rank === "Boss") take(cue, plan.bossClass, plan.bossRank ?? "Boss");
   }
 
   let weightIndex = 0;
   for (const cue of cues) {
     if (cue.rank === "Boss") continue;
-    take(cue, plan.classWeights[weightIndex % plan.classWeights.length]);
+    const rank = plan.rankPlan?.length
+      ? plan.rankPlan[weightIndex % plan.rankPlan.length]
+      : cue.rank;
+    take(cue, plan.classWeights[weightIndex % plan.classWeights.length], rank);
     weightIndex += 1;
   }
 

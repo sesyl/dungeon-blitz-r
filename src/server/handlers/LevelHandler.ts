@@ -4474,6 +4474,11 @@ export class LevelHandler {
             );
         }
 
+        const legendsInnEntryTarget = LevelHandler.resolveLegendsInnEntryDoorTarget(client, currentLevel, doorId);
+        if (legendsInnEntryTarget) {
+            return legendsInnEntryTarget;
+        }
+
         const arachnaeConnectorTarget = LevelHandler.resolveArachnaeConnectorDoorTarget(client, currentLevel, doorId);
         if (arachnaeConnectorTarget) {
             return arachnaeConnectorTarget;
@@ -4490,6 +4495,40 @@ export class LevelHandler {
         }
 
         return LevelConfig.getDoorTarget(currentLevel, doorId);
+    }
+
+    /**
+     * Where the Craft Town portal into Legends' Inn actually leads.
+     *
+     * `door_map.json` chains the entrance to stage 1, because that is the shape of
+     * the dungeon; this is the one door in the chain that answers per character
+     * instead. Nine stages is a long run, and a disconnect part-way through used to
+     * cost all of it - the player walked back in and started again at Wolf's End.
+     * So the entrance reads the checkpoint the character carries and drops them
+     * back where they were.
+     *
+     * Only the entrance is redirected. Every stage-to-stage portal keeps leading to
+     * the stage after it, so the run itself still walks forward one stage at a time.
+     */
+    private static resolveLegendsInnEntryDoorTarget(
+        client: Client,
+        currentLevel: string,
+        doorId: number
+    ): string | null {
+        const configured = LevelConfig.getDoorTarget(currentLevel, doorId);
+        if (!configured || !LegendsInn.isStageLevel(configured) || LegendsInn.isStageLevel(currentLevel)) {
+            return null;
+        }
+
+        const checkpoint = LegendsInn.getCheckpointLevelName(client.character);
+        if (!checkpoint || checkpoint === configured) {
+            return null;
+        }
+
+        console.log(
+            `[LegendsInn] ${String(client.character?.name ?? '')} resumes at ${checkpoint} instead of ${configured}`
+        );
+        return checkpoint;
     }
 
     private static resolveCastleHockeGatewayDoorTarget(client: Client, currentLevel: string, doorId: number): string | null {
@@ -4982,7 +5021,26 @@ export class LevelHandler {
         
         const bb = new BitBuffer();
         bb.writeMethod4(doorId);
-        
+
+        if (LegendsInn.isStageLevel(currentLevel)) {
+            // Legends' Inn shows nothing but its portal.
+            //
+            // A door's floating name plate is built by `Entity.method_579`, and the
+            // first thing that method does is return without building one when the
+            // door's state is CLOSED or LOCKED. Nothing else consults the state:
+            // `Game.OpenDoor` sends the open request off the door the player is
+            // standing on regardless, and every rule about where that door may lead -
+            // including the portal gate below - is enforced here on the server. So
+            // answering CLOSED costs the stage nothing except the plate, which is the
+            // point: the stages pretend to be one place, and a plate naming Craft Town
+            // on the way in or the next stage over the boss's head gives that away
+            // before the portal has even been earned.
+            bb.writeMethod91(LevelHandler.DOORSTATE_CLOSED);
+            bb.writeMethod13(target || '');
+            client.sendBitBuffer(0x42, bb);
+            return;
+        }
+
         if (target && isDreadfoldGateLocked) {
             bb.writeMethod91(LevelHandler.DOORSTATE_LOCKED);
             bb.writeMethod13(target);

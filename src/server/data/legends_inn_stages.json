@@ -12,11 +12,15 @@
         "x": 24531,
         "y": 1865
       },
+      "chest": {
+        "x": 24981,
+        "y": 1865
+      },
       "bosses": [
-        "DogChieftainHard"
+        "BanditGreatRogueHard"
       ],
       "enemies": [
-        "DogChieftainHard",
+        "BanditGreatRogueHard",
         "DogPackmate2Hard",
         "SwampSkeletonSorcererHard",
         "CastleLizard1Hard",
@@ -42,11 +46,15 @@
         "x": 15302,
         "y": 4676
       },
+      "chest": {
+        "x": 15752,
+        "y": 4676
+      },
       "bosses": [
-        "MeylourBossMageHard"
+        "GreaterSkeletonRogueHard"
       ],
       "enemies": [
-        "MeylourBossMageHard",
+        "GreaterSkeletonRogueHard",
         "InfusedSkeletonSorcererHard",
         "GreaterSkeletonClubHard",
         "BanditRogue2Hard",
@@ -71,14 +79,18 @@
         "x": 9903,
         "y": 1932
       },
+      "chest": {
+        "x": 10353,
+        "y": 1932
+      },
       "bosses": [
-        "DemonMalignerHard",
-        "JackalChieftainHard"
+        "InfusedSkeletonRogue2Hard",
+        "SpiritJackalRogueHard"
       ],
       "enemies": [
-        "DemonMalignerHard",
-        "JackalChieftainHard",
-        "GreaterSkeletonRogueHard",
+        "InfusedSkeletonRogue2Hard",
+        "SpiritJackalRogueHard",
+        "InfusedSkeletonRogueHard",
         "GreatLizardMasterHard",
         "SpiritAshenDryadHard",
         "CastleLizard1Hard",
@@ -99,11 +111,15 @@
         "x": 5656,
         "y": 5183
       },
+      "chest": {
+        "x": 6106,
+        "y": 5183
+      },
       "bosses": [
-        "LionLordHard"
+        "MeylourEnthralledRogueHard"
       ],
       "enemies": [
-        "LionLordHard",
+        "MeylourEnthralledRogueHard",
         "CougarWarrior2Hard",
         "CastleLizard1Hard",
         "ShadeMageHard",
@@ -143,11 +159,15 @@
         "x": 18263,
         "y": 4141
       },
+      "chest": {
+        "x": 18713,
+        "y": 4141
+      },
       "bosses": [
-        "AshenDryadWizardHard"
+        "ScarabRogueHard"
       ],
       "enemies": [
-        "AshenDryadWizardHard",
+        "ScarabRogueHard",
         "MeylourEnthralledMageHard",
         "JackalRogueHard",
         "JackalPackmate2Hard",
@@ -170,31 +190,33 @@
       "stage": 6,
       "exitDoorId": 2,
       "returnDoorId": 1,
-      "monsterBonusLevels": 29,
+      "monsterBonusLevels": 32,
       "portal": {
         "x": 15930,
         "y": 2915
       },
+      "chest": {
+        "x": 16380,
+        "y": 2915
+      },
       "bosses": [
-        "OutlanderBossHard"
+        "DreamJackalChieftainHard"
       ],
       "enemies": [
-        "OutlanderBossHard",
+        "DreamJackalChieftainHard",
         "CastleLizardMasterHard",
         "SpiritAshenDryadHard",
         "SpiritDogRogueHard",
         "CastleLizardHeavy2Hard",
         "ShadeMage2Hard",
-        "CastleLizard1Hard",
+        "OutlanderRogueHard",
         "CastleLizardBanner1Hard",
         "ShadeMageHard",
-        "CastleLizard2Hard",
+        "CastleLizard1Hard",
         "CastleLizardBanner2Hard",
         "ImperialMagiHard",
-        "CastleLizard3Hard",
-        "SpiritCougarWarriorHard",
-        "ImperialMagi2Hard",
-        "OutlanderRogueHard"
+        "CastleLizard2Hard",
+        "DeepLizardHeavy2Hard"
       ]
     },
     {
@@ -208,19 +230,23 @@
         "x": 20074,
         "y": 160
       },
+      "chest": {
+        "x": 20524,
+        "y": 160
+      },
       "bosses": [
-        "FirePriestWizardHard"
+        "InfusedSkeletonRogueHard"
       ],
       "enemies": [
-        "FirePriestWizardHard",
+        "InfusedSkeletonRogueHard",
         "MeylourGreatWizardHard",
         "ShadeWarriorHard",
         "ScarabRogueHard",
         "AshenDryad2Hard",
-        "DeepLizardHeavy2Hard",
+        "DeepLizardHeavyHard",
         "OutlanderRogueHard",
         "AshenDryadHard",
-        "DeepLizardHeavyHard",
+        "FirePriest2Hard",
         "BrigandCutthroatHard",
         "ShadeMage2Hard",
         "InfusedSkeletonSwordHard",
@@ -234,27 +260,30 @@
       "stage": 8,
       "exitDoorId": 2,
       "returnDoorId": 1,
-      "monsterBonusLevels": 29,
+      "monsterBonusLevels": 38,
       "portal": {
         "x": 33953,
         "y": 5429
       },
+      "chest": {
+        "x": 34403,
+        "y": 5429
+      },
       "bosses": [
-        "RisenBandit2Hard"
+        "SpiritJackalRogueHard"
       ],
       "enemies": [
-        "RisenBandit2Hard",
         "SpiritJackalRogueHard",
         "BrigandCutthroat2Hard",
-        "CastleLizard1Hard",
-        "BrigandCryomancerHard",
-        "CastleLizard2Hard",
-        "CastleLizard3Hard",
+        "DreamJackalChieftainHard",
         "BrigandCutthroatHard",
-        "ImperialMagi2Hard",
+        "InfusedSkeletonRogue2Hard",
         "SpiritDogRogueHard",
+        "InfusedSkeletonRogueHard",
         "GreaterDemonMalignerHard",
-        "ShadowPuppetHard"
+        "MeylourEnthralledRogueHard",
+        "ShadowPuppetHard",
+        "BanditGreatRogueHard"
       ]
     },
     {
@@ -268,25 +297,29 @@
         "x": 16411,
         "y": 2586
       },
+      "chest": {
+        "x": 16861,
+        "y": 2586
+      },
       "bosses": [
-        "BanditBossHard"
+        "ScarabRogueHard"
       ],
       "enemies": [
-        "BanditBossHard",
+        "ScarabRogueHard",
         "SkeletonDervishHard",
+        "SpiritJackalRogueHard",
         "SkeletonScourgeHard",
+        "InfusedSkeletonRogue2Hard",
         "OutlanderRogueHard",
-        "SpiritGreatLizardWarriorHard",
+        "InfusedSkeletonRogueHard",
         "ShadowPuppetHard",
+        "MeylourEnthralledRogueHard",
         "SpiritDogRogueHard",
+        "BanditGreatRogueHard",
         "JackalRogueHard",
-        "SpiritImperialFootman3Hard",
-        "CastleLizard2Hard",
-        "CastleLizard3Hard",
+        "GreaterSkeletonRogueHard",
         "BanditRogue2Hard",
-        "SpiritJackalPackmateHard",
         "BanditRogueHard",
-        "CastleLizard1Hard",
         "DogRogueHard"
       ]
     }
