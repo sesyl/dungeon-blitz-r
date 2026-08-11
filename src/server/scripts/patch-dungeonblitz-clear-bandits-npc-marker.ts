@@ -214,16 +214,6 @@ function findUniqueMultiname(names: string[], name: string): number {
     return matches[0];
 }
 
-function findInsertionOffset(code: Buffer, label = 'Entity.method_397'): number {
-    const instructions = disassemble(code, `${label}.insertion`);
-    for (let index = 0; index < instructions.length - 1; index += 1) {
-        if (instructions[index].opcode === 0xd0 && instructions[index + 1].opcode === 0x30) {
-            return instructions[index + 1].offset + instructions[index + 1].size;
-        }
-    }
-    throw new PatchError(`Could not find ${label} scope initialization.`);
-}
-
 type MarkerOperands = {
     cue: number;
     contactName: number;
