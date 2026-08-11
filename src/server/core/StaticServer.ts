@@ -1020,9 +1020,15 @@ try {
             // "[object Object]" -- a name the lookup below never intended to be asked about.
             // Anything that is not a plain string is no name at all.
             const requestedName = typeof req.query.name === 'string' ? req.query.name : '';
+            // `instanceof Buffer` rather than Buffer.isBuffer: express.raw only populates
+            // req.body for a request that actually carried one, so the guard is needed either
+            // way, but only the instanceof form narrows the type for a reader -- human or
+            // static analysis. Buffer.isBuffer is opaque, and the value goes on to be measured
+            // and sliced as a Buffer downstream.
+            const png = req.body instanceof Buffer ? req.body : Buffer.alloc(0);
             const result = storeCharacterPortrait(
                 requestedName,
-                Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0),
+                png,
                 this.resolveRequesterAddress(req)
             );
 
