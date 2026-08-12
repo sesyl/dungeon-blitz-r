@@ -734,6 +734,31 @@ export class EntityHandler {
         return bb.toBuffer();
     }
 
+    // The incremental-update shape, standing still. The client applies the deltas
+    // to whatever position it currently believes, which is what makes this usable
+    // to snap a stale local copy onto the shared enemy's real position.
+    private static buildEntityCatchUpMovePayload(
+        entityId: number,
+        deltaX: number,
+        deltaY: number,
+        entState: number,
+        facingLeft: boolean
+    ): Buffer {
+        const bb = new BitBuffer(false);
+        bb.writeMethod4(entityId);
+        bb.writeMethod45(deltaX);
+        bb.writeMethod45(deltaY);
+        bb.writeMethod45(0);
+        bb.writeMethod6(entState, 2);
+        bb.writeMethod15(facingLeft);
+        bb.writeMethod15(false);
+        bb.writeMethod15(false);
+        bb.writeMethod15(false);
+        bb.writeMethod15(false);
+        bb.writeMethod15(false);
+        return bb.toBuffer();
+    }
+
     private static sendServerAuthorityProxyInitialHpSync(
         client: Client,
         canonical: any,
@@ -2079,8 +2104,15 @@ export class EntityHandler {
             Math.round(Number(entity.v ?? 0)) !== 0
         );
         client.knownEntityIds.add(canonicalId);
+        // The follower's own spawn is a fresh copy: full health, standing on the
+        // authored spawn point, however long the party has already been fighting
+        // this enemy. Storing it verbatim left that copy authoritative on the
+        // follower's screen until the next hit anyone landed — and for the
+        // position, permanently, since the relay that follows only carries deltas.
+        // The sibling dedupe path already reconciles a stale local spawn against
+        // the canonical; this one has to as well.
         client.entities.set(localId, {
-            ...entity,
+            ...EntityHandler.syncDamagedSharedCanonicalToLocalSpawn(client, localId, entity, canonical),
             canonicalEntityId: canonicalId,
             sharedCanonicalId: canonicalId
         });
@@ -2623,8 +2655,35 @@ export class EntityHandler {
             client.send(0x78, EntityHandler.buildHpDeltaPayload(localId, -damageTaken));
         }
 
+        // The health was only half the debt. The local spawn also arrives standing
+        // on the authored spawn point while the shared enemy has been walking
+        // around the room, and the movement stream that follows carries deltas
+        // only — so an absolute offset introduced here is never closed by anything
+        // downstream. Every party member ends up fighting the same enemy at a
+        // different place on their screen. Snap it once, at the same moment the
+        // health is snapped.
+        const canonicalX = Math.round(Number(canonical?.x ?? NaN));
+        const canonicalY = Math.round(Number(canonical?.y ?? NaN));
+        const hasCanonicalPosition = Number.isFinite(canonicalX) && Number.isFinite(canonicalY);
+        const deltaX = hasCanonicalPosition ? canonicalX - Math.round(Number(entity?.x ?? 0)) : 0;
+        const deltaY = hasCanonicalPosition ? canonicalY - Math.round(Number(entity?.y ?? 0)) : 0;
+        if (localId > 0 && (deltaX !== 0 || deltaY !== 0)) {
+            client.send(
+                0x07,
+                EntityHandler.buildEntityCatchUpMovePayload(
+                    localId,
+                    deltaX,
+                    deltaY,
+                    Number(canonical?.entState ?? EntityState.ACTIVE),
+                    Boolean(canonical?.facingLeft)
+                )
+            );
+        }
+
         return {
             ...entity,
+            x: hasCanonicalPosition ? canonicalX : entity?.x,
+            y: hasCanonicalPosition ? canonicalY : entity?.y,
             hp: maxHp > 0 ? canonicalHp : entity?.hp,
             maxHp: maxHp > 0 ? maxHp : entity?.maxHp,
             healthDelta: maxHp > 0 ? canonicalHp - maxHp : entity?.healthDelta,

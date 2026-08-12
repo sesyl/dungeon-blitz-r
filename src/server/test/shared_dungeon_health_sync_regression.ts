@@ -733,6 +733,71 @@ function testUnaliasedSharedHostileIncrementalDeathRelaysToViewerLocalId(): void
     );
 }
 
+// A party member whose own copy of the enemy spawns after the fight started used
+// to keep that copy at full health, standing on the authored spawn point: the
+// health paths only correct a viewer on the next hit somebody lands, and the
+// movement relay carries deltas, so the position offset never closed at all.
+async function testLateSpawnedPartyCopyCatchesUpToSharedEnemy(): Promise<void> {
+    const rogue = createFakeClient('Rogue', 41004, 2);
+    const mage = createFakeClient('Mage', 42005, 2);
+    // Its own dungeon instance: the shared boss records this file's earlier tests
+    // leave behind are keyed by level scope and outlive the per-test map resets.
+    rogue.levelInstanceId = 'late-copy-catch-up';
+    mage.levelInstanceId = 'late-copy-catch-up';
+    setParty(rogue, mage);
+    attachPlayer(rogue);
+    attachPlayer(mage);
+    GlobalState.sessionsByToken.set(rogue.token, rogue as never);
+    GlobalState.sessionsByToken.set(mage.token, mage as never);
+
+    const scope = getLevelScopeKey(rogue.currentLevel, rogue.levelInstanceId);
+    attachHostile(rogue, 700001, 'DefectorMage', 2000, 1200, 2);
+    const canonical = GlobalState.levelEntities.get(scope)?.get(700001);
+    assert.ok(canonical, 'first spawn should become the canonical shared hostile');
+    canonical.maxHp = 10000;
+    canonical.hp = 10000;
+    rogue.entities.set(700001, { ...rogue.entities.get(700001), maxHp: 10000, hp: 10000 });
+
+    await CombatHandler.handlePowerHit(rogue as never, buildPowerHitPayload(700001, rogue.clientEntID, 4000));
+    assert.equal(canonical.hp, 6000, 'rogue hit should bring the shared pool down');
+
+    // The enemy walks across the room before the mage's copy exists.
+    canonical.x = 3400;
+    canonical.y = 1180;
+
+    mage.sentPackets.length = 0;
+    attachHostile(mage, 800001, 'DefectorMage', 2000, 1200, 2);
+
+    assert.equal(
+        EntityHandler.resolveEntityAlias(mage as never, 800001),
+        700001,
+        'the late local copy should alias onto the shared enemy'
+    );
+
+    const hpCatchUp = mage.sentPackets
+        .filter((packet) => packet.id === 0x78)
+        .map((packet) => parseHpDelta(packet.payload))
+        .find((parsed) => parsed.entityId === 800001);
+    assert.ok(hpCatchUp, 'late local copy should receive an HP catch-up on its own local id');
+    assert.equal(hpCatchUp.delta, -4000, 'HP catch-up should carry the damage dealt before the copy existed');
+
+    const moveCatchUp = mage.sentPackets
+        .filter((packet) => packet.id === 0x07)
+        .map((packet) => {
+            const br = new BitReader(packet.payload);
+            return { entityId: br.readMethod4(), deltaX: br.readMethod45(), deltaY: br.readMethod45() };
+        })
+        .find((parsed) => parsed.entityId === 800001);
+    assert.ok(moveCatchUp, 'late local copy should receive a position catch-up on its own local id');
+    assert.equal(moveCatchUp.deltaX, 1400, 'position catch-up should close the x offset to the shared enemy');
+    assert.equal(moveCatchUp.deltaY, -20, 'position catch-up should close the y offset to the shared enemy');
+
+    const localCopy = mage.entities.get(800001);
+    assert.equal(localCopy?.hp, 6000, 'server-side cache of the late copy should hold the shared HP');
+    assert.equal(localCopy?.x, 3400, 'server-side cache of the late copy should hold the shared position');
+    assert.equal(localCopy?.y, 1180, 'server-side cache of the late copy should hold the shared position');
+}
+
 function testPlayerHpReportsRelayToPartyViewers(): void {
     const rogue = createFakeClient('Rogue', 33003, 2);
     const mage = createFakeClient('Mage', 44004, 2);
@@ -832,6 +897,12 @@ async function main(): Promise<void> {
         GlobalState.partyByMember.clear();
         GlobalState.partyGroups.clear();
         testPlayerHpReportsRelayToPartyViewers();
+
+        GlobalState.levelEntities.clear();
+        GlobalState.sessionsByToken.clear();
+        GlobalState.partyByMember.clear();
+        GlobalState.partyGroups.clear();
+        await testLateSpawnedPartyCopyCatchesUpToSharedEnemy();
 
         console.log('shared_dungeon_health_sync_regression: ok');
     } finally {
