@@ -23,6 +23,19 @@ const TARGET_CLASS = 'class_133';
 // applied by the swfPatchUtils-based scripts. Run this patch BEFORE those, or re-run them
 // afterwards. patch-dungeonblitz-forge-charm-durations.ts is the one this reverts today;
 // `npm run test:regression` (open_issue_client_asset_regression) is what catches it.
+//
+// This is not hypothetical and it is not free: every run of this script that actually
+// rewrites the SWF (either pass) silently un-applies that patch, and the SWF then ships
+// with a charm-duration regression nobody typed. After any run that prints "Patched" or
+// "Repaired", re-apply the byte patches and re-check:
+//
+//     npx ts-node scripts/patch-dungeonblitz-forge-charm-durations.ts
+//     npx ts-node scripts/patch-dungeonblitz-gear-tooltip-drop-source.ts
+//     npx ts-node test/open_issue_client_asset_regression.ts
+//
+// Re-applying rewrites the SWF again, so run THIS script once more afterwards purely to
+// re-sync index.html's clientrev to the final bytes -- both passes no-op and only the cache
+// token moves. A correct SWF behind a stale token reaches nobody.
 
 // method_659 renders the party-frame headshot at 56px for the HUD. 200px is the same
 // paperdoll capture at a size worth embedding in a Discord widget.
@@ -121,6 +134,71 @@ const HELPER = [
 ].join('\n');
 
 const HELPER_ANCHOR = '      public static function method_956(param1:Game, param2:Vector.<class_133>, param3:Boolean) : void';
+
+// PASS 2 -- collateral repair, not an optional extra.
+//
+// class_133 ships control-flow-flattened (opaque `local8 = false` / `local9 = true` predicates),
+// and the AS3 round trip in pass 1 does not survive it inside method_1570: FFDec recompiles the
+// party-frame tick with the three headshot layers hard-set to `false` and the HP bar pinned to
+// `gotoAndStop(0)`, so every party member's frame renders as an empty portrait with no health.
+// The original bytecode (verified against the pre-patch SWF's p-code) is:
+//
+//     hp = int(currHP / maxHP * 100)
+//     var_580[0].visible = hp > 30      // healthy headshot
+//     var_580[1].visible = 0 < hp <= 30 // hurt headshot
+//     var_580[2].visible = hp <= 0      // dead headshot
+//     am_HPBar.gotoAndStop(clamp(hp, 1, 100))
+//
+// Pass 2 re-exports the now-deobfuscated class and writes that logic back. It is a plain text
+// substitution because after pass 1 the class decompiles cleanly, so this round trip is stable
+// and idempotent.
+const BROKEN_TICK = [
+    '            var _loc5_:int = int(_loc2_.currHP / _loc2_.maxHP * 100);',
+    '            if(_loc5_ <= 0)',
+    '            {',
+    '               var _loc4_:Boolean = true;',
+    '            }',
+    '            else',
+    '            {',
+    '               var _loc3_:Boolean = true;',
+    '            }',
+    '            this.var_580[0].visible = false;',
+    '            this.var_580[1].visible = false;',
+    '            this.var_580[2].visible = false;',
+    '            _loc5_ = 1;',
+    '            _loc1_.gotoAndStop(0);'
+].join('\n');
+
+const REPAIRED_TICK = [
+    '            var _loc6_:int = int(_loc2_.currHP / _loc2_.maxHP * 100);',
+    '            var _loc3_:Boolean = false;',
+    '            var _loc4_:Boolean = false;',
+    '            var _loc5_:Boolean = false;',
+    '            if(_loc6_ <= 0)',
+    '            {',
+    '               _loc5_ = true;',
+    '            }',
+    '            else if(_loc6_ > 30)',
+    '            {',
+    '               _loc3_ = true;',
+    '            }',
+    '            else',
+    '            {',
+    '               _loc4_ = true;',
+    '            }',
+    '            this.var_580[0].visible = _loc3_;',
+    '            this.var_580[1].visible = _loc4_;',
+    '            this.var_580[2].visible = _loc5_;',
+    '            if(_loc6_ > 100)',
+    '            {',
+    '               _loc6_ = 100;',
+    '            }',
+    '            if(_loc6_ < 1)',
+    '            {',
+    '               _loc6_ = 1;',
+    '            }',
+    '            _loc1_.gotoAndStop(_loc6_);'
+].join('\n');
 
 function parseArgs(argv) {
     const args = {
@@ -244,6 +322,30 @@ function isPatched(source) {
     return source.includes('public static function method_9702(param1:Game) : void');
 }
 
+function isPartyFrameRepaired(source) {
+    return source.includes('this.var_580[0].visible = _loc3_;') && source.includes('_loc1_.gotoAndStop(_loc6_);');
+}
+
+/**
+ * Returns the repaired source, or '' when there is nothing to do. Throws when the class is
+ * neither already repaired nor carrying the exact block pass 1 is known to produce -- a silent
+ * no-op here would ship the blank-portrait bug again.
+ */
+function repairPartyFrameTick(rawSource, swfPath) {
+    const source = normalizeNewlines(rawSource);
+    if (isPartyFrameRepaired(source)) {
+        return '';
+    }
+    if (!source.includes(BROKEN_TICK)) {
+        throw new Error(
+            `${path.basename(swfPath)}: class_133.method_1570 matches neither the repaired nor the ` +
+            'known-broken party-frame block. Re-derive the block before shipping.'
+        );
+    }
+
+    return source.replace(BROKEN_TICK, REPAIRED_TICK);
+}
+
 function verifyPatchedClass(source, swfPath) {
     if (!isPatched(source)) {
         throw new Error(`${path.basename(swfPath)} is missing the portrait capture helper.`);
@@ -265,6 +367,12 @@ function verifyPatchedClass(source, swfPath) {
     }
     if (!new RegExp(`getTimer\\(\\) - var_9701 < ${PORTRAIT_THROTTLE_MS}`).test(source)) {
         throw new Error(`${path.basename(swfPath)} is missing the portrait upload throttle.`);
+    }
+    if (!isPartyFrameRepaired(source)) {
+        throw new Error(
+            `${path.basename(swfPath)} has the recompiled party-frame tick: headshots and party ` +
+            'HP bars render empty. Re-run this patch without --verify.'
+        );
     }
 }
 
@@ -307,14 +415,34 @@ function patchSwf(repoRoot, ffdecPath, swfPath) {
     fs.rmSync(workRoot, { recursive: true, force: true });
     fs.mkdirSync(workRoot, { recursive: true });
 
-    const classPath = exportTargetClass(ffdecPath, workRoot, swfPath);
-    const patchedSource = patchSource(fs.readFileSync(classPath, 'utf8'), swfPath);
-    fs.writeFileSync(classPath, patchedSource);
-
     const scriptsDir = path.join(workRoot, 'scripts');
-    runFfdec(ffdecPath, ['-importScript', swfPath, patchedSwfPath, scriptsDir]);
-    fs.copyFileSync(patchedSwfPath, swfPath);
-    console.log(`Patched portrait capture in ${swfPath}`);
+
+    // Pass 1: inject the capture helper into the shipped (obfuscated) class.
+    let classPath = exportTargetClass(ffdecPath, workRoot, swfPath);
+    let source = normalizeNewlines(fs.readFileSync(classPath, 'utf8'));
+    if (!isPatched(source)) {
+        fs.writeFileSync(classPath, patchSource(source, swfPath));
+        runFfdec(ffdecPath, ['-importScript', swfPath, patchedSwfPath, scriptsDir]);
+        fs.copyFileSync(patchedSwfPath, swfPath);
+        console.log(`Patched portrait capture in ${swfPath}`);
+    } else {
+        console.log(`Portrait capture already present in ${swfPath}`);
+    }
+
+    // Pass 2: repair what pass 1's recompile cost the party frame. Always runs, including on a
+    // SWF that was patched by an earlier version of this script.
+    const repairRoot = `${workRoot}-repair`;
+    classPath = exportTargetClass(ffdecPath, repairRoot, swfPath);
+    const repairedSource = repairPartyFrameTick(fs.readFileSync(classPath, 'utf8'), swfPath);
+    if (repairedSource) {
+        fs.writeFileSync(classPath, repairedSource);
+        runFfdec(ffdecPath, ['-importScript', swfPath, patchedSwfPath, path.join(repairRoot, 'scripts')]);
+        fs.copyFileSync(patchedSwfPath, swfPath);
+        console.log(`Repaired party-frame headshot/HP tick in ${swfPath}`);
+    } else {
+        console.log(`Party-frame headshot/HP tick already repaired in ${swfPath}`);
+    }
+
     syncClientRev(repoRoot, swfPath);
 }
 

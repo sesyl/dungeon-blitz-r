@@ -165,6 +165,12 @@ export class CombatHandler {
     private static readonly recentTutorialBossHitPackets = new Map<string, number>();
     private static readonly SERVER_AUTHORITY_SYNC_LEVELS = new Set<string>([
         'JC_Mini1Hard',
+        // The East Wing's hostiles were already server-owned (SERVER_AUTHORITY_HOSTILE_LEVELS)
+        // but missing here, so nothing relayed their health to the other party members: each
+        // screen kept whatever its own client had simulated. Reported as "the level 50's kills
+        // are barely scratched on the level 22's screen, or still standing".
+        'JC_Mini2',
+        'JC_Mini2Hard',
         'TutorialDungeon'
     ]);
 
@@ -3543,7 +3549,7 @@ export class CombatHandler {
         }
 
         const canonicalHp = Math.max(0, Math.round(Number(entity?.hp ?? 0)));
-        const maxHp = Math.max(1, Math.round(Number(entity?.maxHp ?? 0)) || EntityHandler.estimateServerAuthorityHostileMaxHp(entity) || 1);
+        const maxHp = Math.max(1, Math.round(Number(entity?.maxHp ?? 0)) || EntityHandler.estimateServerAuthorityHostileMaxHp(entity, levelScope) || 1);
         const existing = viewer.entities.get(localId) ?? viewer.entities.get(canonicalId);
         const previousHpRaw = Number(existing?.hp ?? NaN);
         const previousHp = Number.isFinite(previousHpRaw)
@@ -3638,7 +3644,7 @@ export class CombatHandler {
             return false;
         }
 
-        const maxHp = Math.max(1, Math.round(Number(canonicalEntity?.maxHp ?? 0)) || EntityHandler.estimateServerAuthorityHostileMaxHp(canonicalEntity) || 1);
+        const maxHp = Math.max(1, Math.round(Number(canonicalEntity?.maxHp ?? 0)) || EntityHandler.estimateServerAuthorityHostileMaxHp(canonicalEntity, levelScope) || 1);
         const existing = viewer.entities.get(localId) ?? viewer.entities.get(canonicalId);
         const previousHpRaw = Number(existing?.hp ?? NaN);
         const previousHp = Number.isFinite(previousHpRaw)
@@ -3901,12 +3907,12 @@ export class CombatHandler {
 
         EntityHandler.normalizeServerAuthorityHostileState(levelScope, entity);
         const entityId = Math.max(0, Math.round(Number(entity?.id ?? 0)));
-        const maxHp = Math.max(1, Math.round(Number(entity.maxHp ?? EntityHandler.estimateServerAuthorityHostileMaxHp(entity))));
+        const maxHp = Math.max(1, Math.round(Number(entity.maxHp ?? EntityHandler.estimateServerAuthorityHostileMaxHp(entity, levelScope))));
         CombatHandler.finalizeHostileDeath(anchor, levelScope, entityId, entity, {
             includeAnchor: true,
             reason: 'server_authority_hostile_death'
         });
-        entity.level = EntityHandler.SERVER_AUTHORITY_ENTITY_LEVEL;
+        entity.level = EntityHandler.resolveServerAuthorityEntityLevel(levelScope);
         entity.maxHp = maxHp;
         entity.hp = 0;
         entity.dead = true;
@@ -5832,6 +5838,32 @@ export class CombatHandler {
         const destroyedEntity = EntityHandler.usesServerAuthorityHostiles(levelName)
             ? (canonicalServerAuthorityEntity ?? client.entities.get(entityId) ?? rawLocalDestroyedEntity ?? canonicalDestroyedEntity)
             : (client.entities.get(entityId) ?? canonicalDestroyedEntity ?? rawLocalDestroyedEntity);
+
+        // A client has no authority over anybody else's body.
+        //
+        // Player lifecycles are the server's: it spawns a body when a session enters a scope
+        // and destroys it when that session leaves. This packet is the client saying "I have
+        // dropped this entity", which a Flash client does routinely while tearing its level
+        // down -- including for the *other* players it was holding. Nothing below this point
+        // distinguished a player from a hostile, and `shouldRelayEntityToOtherClients` is
+        // true for players, so that teardown was rebroadcast as `0x0D` to everyone still in
+        // the scope and deleted the peer's body on their screen.
+        //
+        // A door made it routine and symmetric: both clients tear down, both bodies die on
+        // the other's screen, and nothing re-seeds them. The tell is the party frame, which
+        // keeps reading the destroyed entity out of the client's name lookup -- so it still
+        // draws a headshot and still reports a plausible distance for somebody who is not
+        // being drawn at all. That is the reported "we are standing in the same place and
+        // cannot see each other, and the distance is wrong".
+        // Ignoring the report is not enough on its own: the client really has thrown its copy
+        // away, so the body has to be drawn again or that screen stays empty while the server
+        // still believes the id is known.
+        if (destroyedEntity?.isPlayer && entityId !== client.clientEntID && rawEntityId !== client.clientEntID) {
+            EntityHandler.resendPlayerBodyToViewer(client, entityId) ||
+                EntityHandler.resendPlayerBodyToViewer(client, rawEntityId);
+            return;
+        }
+
         const scriptedAuthority = TutorialDungeonMechanics.isTutorialDungeon(levelName)
             ? TutorialDungeonMechanics.getAuthorityEntity(rawLocalDestroyedEntity, Number(client.currentRoomId ?? 0))
             : null;

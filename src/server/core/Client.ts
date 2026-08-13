@@ -178,17 +178,81 @@ export class Client {
     public challengeStr: string = "";
 
     // Entity State
-    public token: number = 0;
+    //
+    // token / currentLevel / levelInstanceId / currentRoomId are the four fields the session
+    // indexes are derived from, so they write through to those indexes instead of relying on
+    // every caller to remember `GlobalState.refreshSessionIndexes`. One missed refresh used to
+    // leave a live player out of `sessionsByLevelScope` for the rest of the run: everything
+    // fanned out over that index -- movement relay, combat, cutscenes, progress -- silently
+    // skipped them, while their own lookups used their own scope and looked fine. The visible
+    // result after a door was a party member drawn once and then frozen at the spot they were
+    // seeded at, because the body arrived (visibility scans live sessions) but not one
+    // movement packet ever followed it. Deriving the index on write makes that unrepresentable.
+    private _token: number = 0;
+    private _currentLevel: string = "";
+    private _levelInstanceId: string = "";
+    private _currentRoomId: number = -1;
+
+    private reindexSession(): void {
+        const { GlobalState } = require('./GlobalState') as typeof import('./GlobalState');
+        GlobalState.refreshSessionIndexes(this);
+    }
+
+    public get token(): number {
+        return this._token;
+    }
+
+    public set token(value: number) {
+        if (this._token === value) {
+            return;
+        }
+        this._token = value;
+        this.reindexSession();
+    }
+
+    public get currentLevel(): string {
+        return this._currentLevel;
+    }
+
+    public set currentLevel(value: string) {
+        if (this._currentLevel === value) {
+            return;
+        }
+        this._currentLevel = value;
+        this.reindexSession();
+    }
+
+    public get levelInstanceId(): string {
+        return this._levelInstanceId;
+    }
+
+    public set levelInstanceId(value: string) {
+        if (this._levelInstanceId === value) {
+            return;
+        }
+        this._levelInstanceId = value;
+        this.reindexSession();
+    }
+
+    public get currentRoomId(): number {
+        return this._currentRoomId;
+    }
+
+    public set currentRoomId(value: number) {
+        if (this._currentRoomId === value) {
+            return;
+        }
+        this._currentRoomId = value;
+        this.reindexSession();
+    }
+
     public clientEntID: number = 0;
     public entities: Map<number, any> = new Map();
-    public currentLevel: string = "";
     public craftTownHostCharacter: Character | null = null;
-    public levelInstanceId: string = "";
     public entryLevel: string = "";
     public entryX: number = 0;
     public entryY: number = 0;
     public entryHasCoord: boolean = false;
-    public currentRoomId: number = -1;
     public lastDoorId: number = -1;
     public lastDoorTargetLevel: string = "";
     public playerSpawned: boolean = false;
@@ -207,6 +271,17 @@ export class Client {
     public castRate: CastRateState = CastRateAuthority.createState();
     public startedRoomEvents: Set<string> = new Set();
     public knownEntityIds: Set<number> = new Set();
+    /**
+     * Which room each remote player body was last *drawn* in on this client.
+     *
+     * The client has no reader for `PKTTYPE_ENT_FULL_UPDATE` (0x08) at all -- it only ever
+     * sends that packet -- so a remote body can be moved by exactly two things: relayed 0x07
+     * deltas, or a fresh 0x0F spawn. A room change is a teleport that produces no deltas, so
+     * unless the server re-seeds the body it stays in the room it was drawn in, forever.
+     * Comparing this against the subject's current room is what tells the server the copy on
+     * this screen is in the wrong room and has to be drawn again.
+     */
+    public drawnPlayerRoomIds: Map<number, number> = new Map();
     public entityIdAliases: Map<number, number> = new Map();
     public sharedEntityRemoteUpdateDeferredIds: Set<number> = new Set();
     public pendingLoot: Map<number, PendingLootDrop> = new Map();

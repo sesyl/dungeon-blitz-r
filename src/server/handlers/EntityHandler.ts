@@ -20,7 +20,13 @@ import { clearOpenBossScene, getOpenBossScene, isRoomBossEntity, markRoomBossEnt
 import { getBossIdentityKey, getBossIdentityKeys } from '../core/BossCopyCensus';
 import { TutorialDungeonAuthorityEntity, TutorialDungeonMechanics } from '../core/TutorialDungeonMechanics';
 import { MovementAuthority } from '../core/MovementAuthority';
-import { discardForeignGroundedSample, inheritGroundedSample, noteGroundedSample } from '../core/GroundedPosition';
+import {
+    discardForeignGroundedSample,
+    inheritGroundedSample,
+    isEntityAirborne,
+    noteGroundedSample,
+    resolveConfirmedGroundedPosition
+} from '../core/GroundedPosition';
 import {
     buildHomeStatueEntity,
     HOME_STATUE_LEVEL,
@@ -62,6 +68,9 @@ export class EntityHandler {
     ]);
     private static readonly MOUNT_SYNC_RETRY_DELAYS_MS = [0, 300, 1200, 2500, 4000];
     private static readonly CLIENT_SPAWN_JOINER_SEED_DELAYS_MS = [2500, 4500];
+    // Short, because an unseen party member is unplayable, and twice, because the two halves
+    // of a door transfer can complete in either order.
+    private static readonly PLAYER_VISIBILITY_RESYNC_DELAYS_MS = [1200, 3000];
     private static readonly GOBLIN_RIVER_ROOM_SYNC_SKIP_LEVELS = new Set<string>([
         'TutorialDungeon',
         'GoblinRiverDungeon',
@@ -70,6 +79,9 @@ export class EntityHandler {
     private static readonly SERVER_AUTHORITY_HOSTILE_LEVELS = new Set<string>([
         'JC_Mini1Hard',
         'JC_Mini2',
+        // The Dread variant is the same authored dungeon; leaving it out meant a Dread East
+        // Wing run fell back to client-owned hostiles and split the party's enemies again.
+        'JC_Mini2Hard',
         'TutorialDungeon'
     ]);
     private static readonly FIRST_SIGHT_SERVER_AUTHORITY_HOSTILE_LEVELS = new Set<string>();
@@ -292,10 +304,31 @@ export class EntityHandler {
         return EntityHandler.HOSTILE_BASE_HITPOINTS[clampedLevel];
     }
 
-    static estimateServerAuthorityHostileMaxHp(entity: any): number {
+    /**
+     * The tier a server-authority hostile is sized and stamped at.
+     *
+     * The dungeon's own authored tier, so The East Wing's enemies are level 29 rather than
+     * the flat 50 this used to pin every server-authority level to. It is a property of
+     * the level, so every party member gets the same one -- see
+     * `LevelConfig.getAuthoredDungeonEnemyLevel`. The old constant survives only as the
+     * fallback for a scope whose level cannot be resolved (an entity looked up by name
+     * alone, mid-transfer state), where sizing a hostile down would be worse than leaving
+     * it where it was.
+     */
+    static resolveServerAuthorityEntityLevel(levelNameOrScope: string | null | undefined): number {
+        const authoredLevel = LevelConfig.getAuthoredDungeonEnemyLevel(
+            getScopeLevelName(String(levelNameOrScope ?? ''))
+        );
+        return authoredLevel > 0 ? authoredLevel : EntityHandler.SERVER_AUTHORITY_ENTITY_LEVEL;
+    }
+
+    static estimateServerAuthorityHostileMaxHp(entity: any, levelNameOrScope?: string | null): number {
         const entType = GameData.getEntType(String(entity?.name ?? '')) ?? {};
         const hitPointScale = Number(entity?.HitPoints ?? entity?.hitPoints ?? entType?.HitPoints ?? NaN);
-        const baseHp = EntityHandler.getHostileBaseHpForLevel(EntityHandler.SERVER_AUTHORITY_ENTITY_LEVEL);
+        const entityLevel = EntityHandler.resolveServerAuthorityEntityLevel(
+            levelNameOrScope ?? entity?.levelScope ?? entity?.levelName
+        );
+        const baseHp = EntityHandler.getHostileBaseHpForLevel(entityLevel);
         if (!Number.isFinite(hitPointScale) || hitPointScale <= 0) {
             return Math.max(1, baseHp);
         }
@@ -319,7 +352,7 @@ export class EntityHandler {
         const oldMaxHp = Math.max(0, Math.round(Number(entity.maxHp ?? 0)));
         const oldHp = Math.max(0, Math.round(Number(entity.hp ?? (oldMaxHp || 0))));
         const oldDamage = oldMaxHp > 0 ? Math.max(0, oldMaxHp - oldHp) : 0;
-        const maxHp = EntityHandler.estimateServerAuthorityHostileMaxHp(entity);
+        const maxHp = EntityHandler.estimateServerAuthorityHostileMaxHp(entity, levelNameOrScope);
         const dead = Boolean(entity.dead) ||
             Boolean(entity.destroyed) ||
             Number(entity.entState ?? EntityState.ACTIVE) === EntityState.DEAD ||
@@ -327,7 +360,7 @@ export class EntityHandler {
         const hp = dead ? 0 : Math.max(1, Math.min(maxHp, maxHp - oldDamage));
         const healthDelta = hp - maxHp;
 
-        entity.level = EntityHandler.SERVER_AUTHORITY_ENTITY_LEVEL;
+        entity.level = EntityHandler.resolveServerAuthorityEntityLevel(levelNameOrScope);
         entity.maxHp = maxHp;
         entity.hp = hp;
         entity.healthDelta = healthDelta;
@@ -426,7 +459,18 @@ export class EntityHandler {
 
         let bestSession: Client | null = null;
         let bestStartedAt = Number.POSITIVE_INFINITY;
-        for (const session of GlobalState.getSessionsInParty(getPartyIdForClient(client))) {
+        // Scan live sessions, not `sessionsByPartyId`.
+        //
+        // This is the decision that says whether two party members are even in the same
+        // dungeon, and `getSessionsInParty` returns whatever is in the party index -- including
+        // an *incomplete* set, which it hands back as authoritative because a present-but-short
+        // entry is indistinguishable from a correct one. Missing the party mate here means no
+        // anchor, which means this player keeps their own instance id: a private run with their
+        // own copies of every enemy, standing in the same room as somebody they can never see
+        // and whose kills never register. Party membership itself is read from `partyByMember`
+        // by `areClientsInSameParty`, which is the authoritative map, so filtering live sessions
+        // through it cannot go stale. This runs on level entry and full updates, not per frame.
+        for (const session of GlobalState.sessionsByToken.values()) {
             if (
                 session === client ||
                 !session.playerSpawned ||
@@ -982,7 +1026,7 @@ export class EntityHandler {
         const maxHp = Math.max(
             1,
             Math.round(Number(entity?.maxHp ?? 0)) ||
-                EntityHandler.estimateServerAuthorityHostileMaxHp(entity) ||
+                EntityHandler.estimateServerAuthorityHostileMaxHp(entity, scope) ||
                 1
         );
         client.entities.set(localId, {
@@ -1095,7 +1139,7 @@ export class EntityHandler {
             const proxyEntity = {
                 ...entity,
                 id: localId,
-                level: EntityHandler.SERVER_AUTHORITY_ENTITY_LEVEL,
+                level: EntityHandler.resolveServerAuthorityEntityLevel(levelName),
                 hp: Math.max(0, Math.round(Number(canonical.hp ?? 0))),
                 maxHp: Math.max(0, Math.round(Number(canonical.maxHp ?? 0))),
                 healthDelta: Math.round(Number(canonical.healthDelta ?? 0)),
@@ -1255,7 +1299,7 @@ export class EntityHandler {
         const bridgedEntity = {
             ...localEntity,
             id: localId,
-            level: EntityHandler.SERVER_AUTHORITY_ENTITY_LEVEL,
+            level: EntityHandler.resolveServerAuthorityEntityLevel(levelName),
             hp,
             maxHp,
             healthDelta,
@@ -1517,6 +1561,7 @@ export class EntityHandler {
 
         client.entities.delete(localId);
         client.knownEntityIds.delete(localId);
+        client.drawnPlayerRoomIds?.delete(localId);
         client.entityIdAliases?.delete(localId);
         client.send(0x0D, EntityHandler.buildDestroyEntityPayload(localId));
     }
@@ -2416,6 +2461,36 @@ export class EntityHandler {
         return Boolean(characterName && entityName && entityName === characterName);
     }
 
+    /**
+     * The id a session's own client uses for its own body.
+     *
+     * When the server reallocates a colliding player id it stores `local -> canonical` in
+     * `entityIdAliases` and migrates its own bookkeeping to the canonical id -- but the client
+     * never hears about that and goes on calling its own body by the original id. Nothing else
+     * records it, so that id *looks* free to every occupancy check here.
+     *
+     * It is not free, and handing it to that client is the worst thing this code can do: the
+     * spawn reader looks the id up, finds the client's own body, destroys it and rebuilds it as
+     * somebody else. The client's next self update puts its own body back under the same id,
+     * destroying the copy again -- a flip-flop in which neither player's body ever survives on
+     * the other's screen while both still see themselves, and the party frame reads 0ft because
+     * the entity filed under the other player's name is the viewer's own body.
+     */
+    private static getLocalSelfEntityId(session: Client): number {
+        const canonicalId = Math.max(0, Math.round(Number(session.clientEntID) || 0));
+        if (canonicalId <= 0) {
+            return 0;
+        }
+
+        for (const [localId, aliasedId] of session.entityIdAliases ?? []) {
+            if (aliasedId === canonicalId) {
+                return Math.max(0, Math.round(Number(localId) || 0));
+            }
+        }
+
+        return canonicalId;
+    }
+
     private static isPlayerEntityIdOccupiedByOther(levelScope: string, client: Client, entityId: number): boolean {
         const id = Math.max(0, Math.round(Number(entityId) || 0));
         if (!levelScope || id <= 0) {
@@ -2432,6 +2507,10 @@ export class EntityHandler {
                 continue;
             }
             if (other.clientEntID === id && other.character) {
+                return true;
+            }
+            // Also the id that client still calls its own body by, which no other record holds.
+            if (other.character && EntityHandler.getLocalSelfEntityId(other) === id) {
                 return true;
             }
 
@@ -2460,6 +2539,9 @@ export class EntityHandler {
                 continue;
             }
             if (other.clientEntID === id && other.character) {
+                return false;
+            }
+            if (other.character && EntityHandler.getLocalSelfEntityId(other) === id) {
                 return false;
             }
             if (other.entities.has(id)) {
@@ -3307,6 +3389,25 @@ export class EntityHandler {
         const entity = EntityHandler.getLevelMap(levelName, client.levelInstanceId)?.get(entityId);
         if (!entity || !EntityHandler.canClientSeeEntity(client, entity)) {
             return false;
+        }
+
+        // Player bodies are not this path's to place.
+        //
+        // Seeding one from here sends the raw level-map snapshot: no floor sample, no airborne
+        // refusal, and delivered at whatever moment a relay happens to run -- including while
+        // the receiving client is still loading its level, where it is simply discarded. That
+        // left the id marked known with nothing on screen, and it also made this a *second*
+        // sender competing with the visibility pass: each 0x0F rebuilds the body on the client,
+        // so two of them a second apart is a body that is being destroyed and recreated instead
+        // of drawn. One owner only.
+        //
+        // Send nothing and let the visibility pass place it -- but still answer yes, because
+        // this is also the gate for ordinary relays (health, movement, buffs) and a player is
+        // always entitled to those. Withholding them here stops a party member's damage from
+        // ever reaching the other screens. Leaving `knownEntityIds` untouched is deliberate:
+        // that is what tells the visibility pass this screen still has no body to draw.
+        if (entity.isPlayer) {
+            return true;
         }
 
         if (client.knownEntityIds.has(entityId)) {
@@ -4227,7 +4328,37 @@ export class EntityHandler {
              BuildingHandler.refreshCraftTownBuildingsOnSpawn(client);
              EntityHandler.sendCraftTownAuthoredNpcs(client);
              HomeStatueHandler.onCraftTownSpawn(client);
+        } else if (isPlayer) {
+            // Standing invariant, not an event. The seed and its two retries all happen in the
+            // first three seconds of a spawn, and a body lost after that -- by a late teardown,
+            // a dropped packet, a spawn that landed while the level was still loading -- used
+            // to stay lost for the whole run. This runs off the player's own movement, only
+            // draws what the viewer is not already holding, and is throttled, so a scope where
+            // everyone can see everyone does nothing at all.
+            EntityHandler.reconcilePlayerVisibilityOnActivity(client);
         }
+    }
+
+    // Short, because until this runs a party member is standing in the wrong room on somebody
+    // else's screen. It is only a walk over the sessions in one scope plus two map lookups per
+    // pair, and it sends nothing at all unless a screen is actually wrong.
+    private static readonly PLAYER_VISIBILITY_RECONCILE_INTERVAL_MS = 500;
+    private static readonly playerVisibilityReconciledAt = new Map<number, number>();
+
+    static reconcilePlayerVisibilityOnActivity(client: Client): void {
+        const token = Math.max(0, Math.round(Number(client.token ?? 0)));
+        if (token <= 0) {
+            return;
+        }
+
+        const now = Date.now();
+        const last = EntityHandler.playerVisibilityReconciledAt.get(token) ?? 0;
+        if (now - last < EntityHandler.PLAYER_VISIBILITY_RECONCILE_INTERVAL_MS) {
+            return;
+        }
+
+        EntityHandler.playerVisibilityReconciledAt.set(token, now);
+        EntityHandler.reconcilePlayerVisibilityInScope(client);
     }
 
     static sendInitialLevelEntities(client: Client, levelName: string): void {
@@ -4304,6 +4435,28 @@ export class EntityHandler {
         MissionHandler.tryRestoreDungeonCompletionAfterReentry(client);
     }
 
+    /**
+     * The session that owns this character *now*, when it is not the one being torn down.
+     *
+     * A door is two connections: the old socket closes and the client immediately opens a
+     * new one, and the close handler is not guaranteed to run first. When it runs second it
+     * used to tear down the body the successor had already spawned -- `removeOwnedEntities`
+     * matches player bodies by character name, and the name is the same on both sides of
+     * the door. The destroy went to everyone *except* the departing client, so the player
+     * who walked through the door became permanently invisible to the rest of the party
+     * while still seeing them: the reported "we used the door and can no longer see each
+     * other even though we are standing in the same place".
+     */
+    private static resolveLiveSuccessorSession(client: Client): Client | null {
+        const characterName = client.character?.name;
+        if (!characterName) {
+            return null;
+        }
+
+        const owner = GlobalState.getActiveSessionByCharacterName(characterName);
+        return owner && owner !== client && GlobalState.isClientConnectionOpen(owner) ? owner : null;
+    }
+
     static removeOwnedEntities(client: Client): number[] {
         const levelName = client.currentLevel;
         if (!levelName) {
@@ -4314,17 +4467,29 @@ export class EntityHandler {
         const removedEntityProps = new Map<number, any>();
         const levelMap = EntityHandler.getLevelMap(levelName, client.levelInstanceId);
         const charNameNorm = EntityHandler.normalizeIdentityName(client.character?.name);
+        const successor = EntityHandler.resolveLiveSuccessorSession(client);
+        const successorEntityId = Math.max(0, Math.round(Number(successor?.clientEntID ?? 0)));
 
         if (levelMap) {
             for (const [entityId, entityProps] of Array.from(levelMap.entries())) {
+                // The successor's body is not this session's to remove, whatever the name
+                // on it says.
+                if (successorEntityId > 0 && entityId === successorEntityId) {
+                    continue;
+                }
+
                 const entityNameNorm = EntityHandler.normalizeIdentityName(entityProps?.name);
                 const isOwnedPlayer = Boolean(entityProps?.isPlayer) && (
                     (client.clientEntID > 0 && entityId === client.clientEntID) ||
-                    (charNameNorm && entityNameNorm === charNameNorm)
+                    // Matching by name is what catches a body left behind under an id this
+                    // session no longer remembers. It may only be trusted while nobody else
+                    // is playing that character.
+                    (!successor && charNameNorm && entityNameNorm === charNameNorm)
                 );
                 const isOwnedClientSpawn =
                     Boolean(entityProps?.clientSpawned) &&
                     Number(entityProps?.ownerToken ?? 0) === client.token &&
+                    (!successor || Number(entityProps?.ownerToken ?? 0) !== successor.token) &&
                     !EntityHandler.isServerAuthorityHostileEntity(levelName, entityProps);
 
                 if (isOwnedPlayer || isOwnedClientSpawn) {
@@ -4339,7 +4504,7 @@ export class EntityHandler {
             }
         }
 
-        if (client.playerSpawned && client.clientEntID > 0) {
+        if (client.playerSpawned && client.clientEntID > 0 && client.clientEntID !== successorEntityId) {
             removedEntityIds.add(client.clientEntID);
         }
 
@@ -4356,29 +4521,487 @@ export class EntityHandler {
         return Array.from(removedEntityIds);
     }
 
-    private static sendExistingPlayersToJoiner(joiner: Client): void {
-        for (const other of GlobalState.getSessionsInLevelScope(getClientLevelScope(joiner))) {
-            if (other === joiner) {
-                continue;
-            }
-            if (!other.playerSpawned || !areClientsInSameLevelScope(joiner, other)) {
-                continue;
-            }
-            if (other.userId && joiner.userId && other.userId === joiner.userId && other.character?.name === joiner.character?.name) {
-                continue;
-            }
-            if (!other.character || other.clientEntID <= 0) {
-                continue;
-            }
-
-            const otherProps = other.entities.get(other.clientEntID);
-            if (!otherProps) {
-                continue;
-            }
-
-            EntityHandler.sendEntity(joiner, Entity.fromCharacter(other.clientEntID, other.character, otherProps));
-            EntityHandler.sendOtherPlayerMountToJoiner(joiner, other);
+    /**
+     * Who else is standing in this scope, resolved from live sessions.
+     *
+     * Player visibility is the one thing that must never depend on an index being in
+     * step: a session missing from `sessionsByLevelScope` for even one spawn is a party
+     * member who is never sent, and nothing sends them again for the rest of the run --
+     * the reported "we walked through a door and now only one of us can see the other".
+     * These paths run on spawn and on gear/snapshot changes, not per frame, so the scan
+     * is affordable.
+     */
+    private static getSpawnedSessionsInScope(levelScope: string): Client[] {
+        if (!levelScope) {
+            return [];
         }
+
+        const sessions: Client[] = [];
+        for (const session of GlobalState.sessionsByToken.values()) {
+            if (session.playerSpawned && getClientLevelScope(session) === levelScope) {
+                sessions.push(session);
+            }
+        }
+        return sessions;
+    }
+
+    /**
+     * A player body about to be drawn on somebody else's screen, placed on floor.
+     *
+     * Seeding another client with a player is a spawn, and the client only snaps a spawn
+     * onto floor within 160px of where the server put it (see the note at the top of
+     * core/GroundedPosition). Handing it the live sample means handing it whatever the
+     * movement deltas add up to right now -- mid-jump, mid-knockback, or mid-boss-intro
+     * where the scripted camera work leaves the body well above the ground. Outside the
+     * snap window the client accepts the point and lets the body fall to the floor, which
+     * is the party members raining down at the start of the boss scene.
+     *
+     * The live position still wins whenever it is itself a confirmed standing sample; the
+     * grounded fallback only replaces a point the client never claimed to be standing on.
+     * Movement packets correct any small difference on the next frame.
+     */
+    private static withGroundedBodyPosition(entity: any, levelName: string | null | undefined): any | null {
+        if (!entity) {
+            return entity;
+        }
+
+        const grounded = resolveConfirmedGroundedPosition(entity, levelName);
+        if (!grounded) {
+            // No confirmed floor sample. If the body is airborne on top of that there is
+            // nothing safe to draw it at: the live point is somewhere in open air, and the
+            // client accepts it as given once it is outside the snap ray, which is the
+            // player materialising above the boss room and gliding down. Refuse the seed and
+            // let the resync pass send it once the client reports standing somewhere.
+            return isEntityAirborne(entity) ? null : entity;
+        }
+
+        const liveX = Math.round(Number(entity.x ?? NaN));
+        const liveY = Math.round(Number(entity.y ?? NaN));
+        if (liveX === grounded.x && liveY === grounded.y) {
+            return entity;
+        }
+
+        return { ...entity, x: grounded.x, y: grounded.y };
+    }
+
+    /**
+     * Draw one player on one other player's screen.
+     *
+     * Returns false when there is nothing safe to send yet. A body with no position would go
+     * out as 0,0 -- the world origin -- so a subject whose own client has not reported a
+     * position is skipped and left to the resync pass below rather than teleported.
+     */
+    /**
+     * Is this screen's copy of that player wrong?
+     *
+     * The client has no reader for the 0x08 full update, so a body is only ever placed by a
+     * 0x0F spawn and only ever moved within a room by relayed 0x07 deltas. That leaves three
+     * ways a screen can be wrong, and `knownEntityIds` alone recognises just one of them.
+     *
+     * The third is the one that produced the last live report -- the dungeon starter visible to
+     * nobody who joined them. `ensureEntityKnown`, on the relay path, pulls a body in by
+     * sending the raw level-map snapshot and marks the id known. If that copy never actually
+     * landed (it is seeded with no floor treatment, and it arrives whenever a relay happens to
+     * run, including while the joining client is still loading its level), the id is known and
+     * nothing here ever drew it -- so treating "known" as "correct" left that screen empty for
+     * the rest of the run. It is asymmetric because the joiner's own body *is* drawn properly
+     * by the pass below, which is why one side saw the other and not the reverse.
+     *
+     * So: no record of *this* code having drawn it is not evidence the screen is right. Draw it
+     * and start tracking. A body this pass has drawn is recorded, so a healthy scope still
+     * costs two lookups and sends nothing.
+     */
+    private static viewerNeedsPlayerBodyRedrawn(viewer: Client, subject: Client): boolean {
+        if (!viewer.knownEntityIds.has(subject.clientEntID)) {
+            return true;
+        }
+
+        const drawnRoomId = viewer.drawnPlayerRoomIds?.get(subject.clientEntID);
+        if (drawnRoomId === undefined) {
+            return true;
+        }
+
+        return drawnRoomId !== Math.round(Number(subject.currentRoomId ?? -1));
+    }
+
+    // Three sweep ticks. Long enough that a real fall lands first, short enough that nobody
+    // stands next to an invisible party member wondering what is wrong.
+    private static readonly PLAYER_BODY_PLACEMENT_REFUSAL_LIMIT = 3;
+    private static readonly playerBodyPlacementRefusals = new Map<string, number>();
+
+    private static sendPlayerBodyToViewer(viewer: Client, subject: Client, force: boolean = true): boolean {
+        if (
+            viewer === subject ||
+            !subject.character ||
+            subject.clientEntID <= 0 ||
+            !viewer.playerSpawned ||
+            !subject.playerSpawned ||
+            !areClientsInSameLevelScope(viewer, subject)
+        ) {
+            return false;
+        }
+        // A re-seed is a spawn: the client destroys its copy and rebuilds it, which resets the
+        // animation. The reconcile sweep therefore only draws a body that is missing from this
+        // screen, or one this screen is showing in a room the player is no longer in -- the
+        // only two states a viewer can be wrong in. The seed and retry passes force, because
+        // there the point is to (re)place it.
+        if (!force && !EntityHandler.viewerNeedsPlayerBodyRedrawn(viewer, subject)) {
+            return false;
+        }
+        // The same character logged in twice is one player, not two bodies.
+        if (
+            viewer.userId &&
+            subject.userId &&
+            viewer.userId === subject.userId &&
+            viewer.character?.name === subject.character?.name
+        ) {
+            return false;
+        }
+
+        // Never hand a client a body under the id it calls its own by. The spawn reader would
+        // look the id up, find that client's own body, destroy it and rebuild it as this
+        // subject; the client's next self update puts its own body back and destroys the copy.
+        // Neither player's body survives on the other's screen, both still see themselves, and
+        // the party frame reads 0ft because the entity filed under the other name is their own
+        // body. The id allocator now avoids this, so reaching here means it was defeated.
+        if (subject.clientEntID === EntityHandler.getLocalSelfEntityId(viewer)) {
+            console.warn(
+                `[PlayerVisibility] refusing to draw ${subject.character?.name ?? '?'} for ` +
+                `${viewer.character?.name ?? '?'}: entity id ${subject.clientEntID} is the id that ` +
+                'client uses for its own body -- sending it would destroy their own character'
+            );
+            return false;
+        }
+
+        const props = subject.entities.get(subject.clientEntID);
+        if (!props) {
+            return false;
+        }
+
+        // Null means "nowhere safe to put this body yet" -- airborne with no confirmed floor
+        // sample. Seeding it anyway is the player appearing in mid-air and falling into the
+        // room, which is what this refuses to do.
+        //
+        // But the refusal must not be permanent, and that is what kept this one-way. The flags
+        // it reads live on the *stored* body and are only rewritten by a movement packet, so a
+        // player who lands and then stands still keeps whatever the last packet said -- often
+        // `dropping` from the landing itself. Nobody sends anything while standing still, so
+        // the body is refused on every pass, forever, and that screen stays empty while the
+        // reverse direction works perfectly. After a few seconds of refusing, the live position
+        // is the honest answer: the player is demonstrably not moving, so it is where they are.
+        const pairKey = `${viewer.token}:${subject.clientEntID}`;
+        let placed = EntityHandler.withGroundedBodyPosition(props, subject.currentLevel);
+        if (!placed) {
+            const refusals = (EntityHandler.playerBodyPlacementRefusals.get(pairKey) ?? 0) + 1;
+            if (refusals < EntityHandler.PLAYER_BODY_PLACEMENT_REFUSAL_LIMIT) {
+                EntityHandler.playerBodyPlacementRefusals.set(pairKey, refusals);
+                return false;
+            }
+
+            console.warn(
+                `[PlayerVisibility] drawing ${subject.character?.name ?? '?'} for ` +
+                `${viewer.character?.name ?? '?'} at their live position after ${refusals} refusals ` +
+                '(no confirmed floor sample and the body reads as airborne while standing still)'
+            );
+            placed = props;
+        }
+        EntityHandler.playerBodyPlacementRefusals.delete(pairKey);
+
+        EntityHandler.sendEntity(
+            viewer,
+            Entity.fromCharacter(subject.clientEntID, subject.character, placed)
+        );
+        EntityHandler.sendOtherPlayerMountToJoiner(viewer, subject);
+        // Record which room this screen now shows the body in. A 0x0F spawn is the only packet
+        // that can move it across a room boundary, so this is what later tells us the copy is
+        // stale and has to be drawn again.
+        viewer.drawnPlayerRoomIds?.set(subject.clientEntID, Math.round(Number(subject.currentRoomId ?? -1)));
+        return true;
+    }
+
+    /**
+     * Make everybody in this scope visible to everybody else, both directions.
+     *
+     * Player visibility used to be two one-shot half-exchanges -- the joiner pulled the
+     * others in on spawn, the others were pushed the joiner -- and either half failing left
+     * the pair permanently one-way, which is exactly what a door produced: the player who
+     * walked through saw the party and the party could not see them (or the reverse), for
+     * the rest of the run, with nothing to retry it.
+     *
+     * A door is also a race. The two connections and the two spawns interleave in any order,
+     * and a body the subject's own client has not reported yet cannot be sent at all. So this
+     * runs on spawn and again on a short retry, and it is symmetric: whichever half was not
+     * possible the first time is simply done on the next pass.
+     */
+    private static syncPlayerVisibilityInScope(client: Client): void {
+        const levelScope = getClientLevelScope(client);
+        if (!client.playerSpawned || !levelScope) {
+            return;
+        }
+
+        for (const other of EntityHandler.getSpawnedSessionsInScope(levelScope)) {
+            if (other === client) {
+                continue;
+            }
+
+            EntityHandler.sendPlayerBodyToViewer(client, other);
+            EntityHandler.sendPlayerBodyToViewer(other, client);
+        }
+    }
+
+    /**
+     * Put back a player body the viewer's client says it has dropped.
+     *
+     * A client emits `0x0D` for everything it lets go of while unloading a level, other
+     * players included, and honouring that is what left two people standing on the same tile
+     * unable to see each other ([[client-destroy-deletes-peer-player-body]]). Ignoring it is
+     * not enough either: the client really has thrown its copy away, so if the server just
+     * drops the packet the body stays gone and `knownEntityIds` still claims it is there,
+     * which suppresses every later reconcile. Forget it, then draw it again.
+     */
+    static resendPlayerBodyToViewer(viewer: Client, subjectEntityId: number): boolean {
+        const entityId = Math.max(0, Math.round(Number(subjectEntityId) || 0));
+        if (entityId <= 0 || !viewer.playerSpawned) {
+            return false;
+        }
+
+        const levelScope = getClientLevelScope(viewer);
+        for (const subject of EntityHandler.getSpawnedSessionsInScope(levelScope)) {
+            if (subject === viewer || subject.clientEntID !== entityId) {
+                continue;
+            }
+
+            viewer.knownEntityIds.delete(entityId);
+            viewer.drawnPlayerRoomIds?.delete(entityId);
+            return EntityHandler.sendPlayerBodyToViewer(viewer, subject);
+        }
+
+        return false;
+    }
+
+    /**
+     * Re-draw any player body a viewer in this scope is missing.
+     *
+     * Visibility cannot be a one-shot event. Whatever the reason a body goes missing on one
+     * screen -- a teardown, a dropped packet, a spawn that arrived while the level was still
+     * loading -- nothing used to put it back, so it stayed missing for the rest of the run.
+     * This is the standing invariant: it only sends what the viewer is not already holding,
+     * so a scope where everyone can see everyone costs a couple of set lookups.
+     */
+    static reconcilePlayerVisibilityInScope(client: Client): void {
+        const levelScope = getClientLevelScope(client);
+        if (!client.playerSpawned || !levelScope) {
+            return;
+        }
+
+        for (const other of EntityHandler.getSpawnedSessionsInScope(levelScope)) {
+            if (other === client) {
+                continue;
+            }
+
+            EntityHandler.sendPlayerBodyToViewer(client, other, false);
+            EntityHandler.sendPlayerBodyToViewer(other, client, false);
+        }
+    }
+
+    /**
+     * Keep every screen correct on a timer, not on a packet.
+     *
+     * Every earlier attempt at this hung off some packet path -- the spawn, two timed retries,
+     * a hook on the mover's own movement update. A door is a full level reload onto a new TCP
+     * connection, and each of those paths has its own early returns and its own ordering
+     * against that reload, so any one of them can simply not run for the pair that needs it.
+     * The result was a fix that worked in the test and not in the room.
+     *
+     * This owes nothing to any packet arriving. It walks the live sessions once a second and
+     * draws only what a screen is actually wrong about -- a body missing, or a body sitting in
+     * a room the player has left -- so it is silent whenever everything is already correct,
+     * and it keeps retrying a body that had to be refused for being mid-air until it lands.
+     */
+    private static readonly PLAYER_VISIBILITY_SWEEP_INTERVAL_MS = 1000;
+    private static playerVisibilitySweep: ReturnType<typeof setInterval> | null = null;
+
+    private static lastSplitScopeReport = '';
+
+    /**
+     * Say it out loud when two party members are standing in the same level on different
+     * instances.
+     *
+     * Nothing above this can help them: visibility, health relay, progress and loot are all
+     * scoped, so a split instance is two private runs that happen to look identical. It is also
+     * the one failure that looks exactly like a visibility bug from the outside -- same room,
+     * same spot, cannot see each other -- so when it happens the log should name it rather than
+     * leaving the next person to re-derive it. Logged only when the picture changes, so a
+     * healthy party is silent.
+     */
+    private static lastVisibilityReport = '';
+
+    /**
+     * Say, every second, what the server believes about each pair who should see each other.
+     *
+     * This exists because the same symptom -- "we are standing together and cannot see each
+     * other" -- has had six different causes in this system, and none of them can be told apart
+     * from the outside. One line per ordered pair, logged only when the picture changes, naming
+     * the exact blocking condition. If it says `drawn`, the server has done its part and the
+     * next place to look is the client; anything else names the server-side reason outright.
+     */
+    private static reportPlayerVisibilityState(): void {
+        const lines: string[] = [];
+        const spawned = Array.from(GlobalState.sessionsByToken.values()).filter(
+            (session) => session.playerSpawned && session.character
+        );
+
+        for (const viewer of spawned) {
+            for (const subject of spawned) {
+                if (viewer === subject) {
+                    continue;
+                }
+                if (getPartyIdForClient(viewer) <= 0 || !areClientsInSameParty(viewer, subject)) {
+                    continue;
+                }
+
+                const names = `${subject.character?.name ?? '?'}->${viewer.character?.name ?? '?'}`;
+                let state: string;
+                if (!areClientsInSameLevelScope(viewer, subject)) {
+                    state = `SPLIT-SCOPE viewer=${getClientLevelScope(viewer)} subject=${getClientLevelScope(subject)}`;
+                } else if (subject.clientEntID <= 0) {
+                    state = 'subject has no entity id yet';
+                } else if (subject.clientEntID === EntityHandler.getLocalSelfEntityId(viewer)) {
+                    state = `ID-COLLISION id=${subject.clientEntID} is the viewer's own body id`;
+                } else if (!subject.entities.get(subject.clientEntID)) {
+                    state = `no stored body for id=${subject.clientEntID}`;
+                } else if (!EntityHandler.withGroundedBodyPosition(
+                    subject.entities.get(subject.clientEntID),
+                    subject.currentLevel
+                )) {
+                    state = 'placement refused (airborne, no confirmed floor sample)';
+                } else if (!viewer.drawnPlayerRoomIds?.has(subject.clientEntID)) {
+                    state = `not drawn yet (known=${viewer.knownEntityIds.has(subject.clientEntID)})`;
+                } else {
+                    const drawnRoom = viewer.drawnPlayerRoomIds.get(subject.clientEntID);
+                    state = drawnRoom === Math.round(Number(subject.currentRoomId ?? -1))
+                        ? `drawn id=${subject.clientEntID} room=${drawnRoom}`
+                        : `drawn in the WRONG room drawn=${drawnRoom} actual=${subject.currentRoomId}`;
+                }
+
+                lines.push(`${names}: ${state}`);
+            }
+        }
+
+        const report = lines.sort().join(' ;; ');
+        if (report === EntityHandler.lastVisibilityReport) {
+            return;
+        }
+        EntityHandler.lastVisibilityReport = report;
+        if (report) {
+            console.log(`[Visibility] ${report}`);
+        }
+    }
+
+    private static reportPartyMembersInSplitScopes(): void {
+        const scopesByParty = new Map<number, Map<string, string[]>>();
+        for (const session of GlobalState.sessionsByToken.values()) {
+            const partyId = getPartyIdForClient(session);
+            if (!session.playerSpawned || partyId <= 0) {
+                continue;
+            }
+            const levelScope = getClientLevelScope(session);
+            if (!levelScope) {
+                continue;
+            }
+            let scopes = scopesByParty.get(partyId);
+            if (!scopes) {
+                scopes = new Map<string, string[]>();
+                scopesByParty.set(partyId, scopes);
+            }
+            const names = scopes.get(levelScope) ?? [];
+            names.push(String(session.character?.name ?? '?'));
+            scopes.set(levelScope, names);
+        }
+
+        const lines: string[] = [];
+        for (const [partyId, scopes] of scopesByParty) {
+            if (scopes.size < 2) {
+                continue;
+            }
+            const parts = Array.from(scopes.entries())
+                .map(([scope, names]) => `${names.sort().join('+')}@${scope}`)
+                .sort();
+            lines.push(`party ${partyId}: ${parts.join(' | ')}`);
+        }
+
+        const report = lines.sort().join(' ;; ');
+        if (report === EntityHandler.lastSplitScopeReport) {
+            return;
+        }
+        EntityHandler.lastSplitScopeReport = report;
+        if (report) {
+            console.warn(
+                `[PartyScope] party members are in DIFFERENT level scopes -- they cannot see ` +
+                `each other, share enemies or share progress until this converges: ${report}`
+            );
+        }
+    }
+
+    static startPlayerVisibilitySweep(): void {
+        if (EntityHandler.playerVisibilitySweep) {
+            return;
+        }
+
+        EntityHandler.playerVisibilitySweep = setInterval(() => {
+            EntityHandler.reportPartyMembersInSplitScopes();
+            EntityHandler.reportPlayerVisibilityState();
+
+            const seenScopes = new Set<string>();
+            for (const session of GlobalState.sessionsByToken.values()) {
+                if (!session.playerSpawned) {
+                    continue;
+                }
+                const levelScope = getClientLevelScope(session);
+                if (!levelScope || seenScopes.has(levelScope)) {
+                    continue;
+                }
+                seenScopes.add(levelScope);
+
+                const sessions = EntityHandler.getSpawnedSessionsInScope(levelScope);
+                if (sessions.length < 2) {
+                    continue;
+                }
+                for (const viewer of sessions) {
+                    for (const subject of sessions) {
+                        if (viewer !== subject) {
+                            EntityHandler.sendPlayerBodyToViewer(viewer, subject, false);
+                        }
+                    }
+                }
+            }
+        }, EntityHandler.PLAYER_VISIBILITY_SWEEP_INTERVAL_MS);
+        EntityHandler.playerVisibilitySweep.unref?.();
+    }
+
+    static schedulePlayerVisibilityResync(client: Client): void {
+        const token = client.token;
+        for (const delayMs of EntityHandler.PLAYER_VISIBILITY_RESYNC_DELAYS_MS) {
+            setTimeout(() => {
+                // Deliberately not pinned to the scope captured at schedule time. The scope
+                // guard can move a session onto the party's instance at any point after it
+                // spawns (combat relay, level entry), and a retry cancelled because the
+                // scope "changed" is a retry cancelled exactly when it was most needed --
+                // that is the run where the leader never receives the member who walked
+                // through the door. The token check is enough to drop a stale session.
+                if (!client.playerSpawned || client.token !== token) {
+                    return;
+                }
+
+                EntityHandler.syncPlayerVisibilityInScope(client);
+            }, delayMs).unref?.();
+        }
+    }
+
+    private static sendExistingPlayersToJoiner(joiner: Client): void {
+        EntityHandler.startPlayerVisibilitySweep();
+        EntityHandler.syncPlayerVisibilityInScope(joiner);
+        EntityHandler.schedulePlayerVisibilityResync(joiner);
 
         EntityHandler.replayStartedDungeonRoomEventsToJoiner(joiner);
         EntityHandler.scheduleExistingVisibleClientSpawnEntitiesToJoiner(joiner);
@@ -4430,11 +5053,29 @@ export class EntityHandler {
             return;
         }
 
-        for (const other of GlobalState.getSessionsInLevelScope(getClientLevelScope(client))) {
+        // Self keeps the live position -- correcting a player's own body under them is a
+        // rubber-band. Everyone else is being handed a spawn, so it goes on floor.
+        const remoteEntity = EntityHandler.withGroundedBodyPosition(playerEntity, client.currentLevel);
+        for (const other of EntityHandler.getSpawnedSessionsInScope(getClientLevelScope(client))) {
             if ((!includeSelf && other === client) || !other.playerSpawned || !areClientsInSameLevelScope(client, other)) {
                 continue;
             }
-            EntityHandler.sendEntity(other, playerEntity);
+            if (other === client) {
+                EntityHandler.sendEntity(other, playerEntity);
+                continue;
+            }
+            // Airborne with no confirmed floor sample: nothing safe to draw on a remote
+            // screen, so this refresh skips them and the resync pass picks it up.
+            if (remoteEntity) {
+                EntityHandler.sendEntity(other, remoteEntity);
+                // Record it exactly as the visibility pass would. This *is* a real placement,
+                // so leaving no record would have the sweep redraw it a second later -- and a
+                // redraw is a spawn, which rebuilds the body on the client.
+                other.drawnPlayerRoomIds?.set(client.clientEntID, Math.round(Number(client.currentRoomId ?? -1)));
+            }
+        }
+        if (!remoteEntity) {
+            EntityHandler.schedulePlayerVisibilityResync(client);
         }
     }
 

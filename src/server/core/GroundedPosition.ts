@@ -225,9 +225,33 @@ export function discardForeignGroundedSample(entity: any, currentLevel: string |
         return false;
     }
 
+    return clearGroundedSample(entity);
+}
+
+/**
+ * Throw away the floor sample outright.
+ *
+ * `groundedLevel` scopes a sample to a map, which is not fine enough inside a dungeon: a room
+ * change keeps the level and moves the body a long way, so the old room's floor point stays
+ * "confirmed" and every path that prefers a confirmed sample over the live position keeps
+ * re-pinning the player to the room they walked out of. That is invisible to the player who
+ * moved -- their own client draws from its own simulation -- and permanent for everybody else,
+ * who are handed that stale point on every push and every resync.
+ *
+ * So a room change discards the sample. Until the client declares a standing position in the
+ * new room there is simply no confirmed floor for this body, which is the honest answer: the
+ * live position is used when the body is on the ground, and an airborne body is not drawn on
+ * a remote screen at all until it lands.
+ */
+export function clearGroundedSample(entity: any): boolean {
+    if (!entity || typeof entity !== 'object') {
+        return false;
+    }
+
+    const hadSample = entity.groundedX !== undefined || entity.groundedY !== undefined;
     delete entity.groundedX;
     delete entity.groundedY;
     delete entity.groundedLevel;
     delete entity.groundedAbsolute;
-    return true;
+    return hadSample;
 }

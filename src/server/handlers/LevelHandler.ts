@@ -60,7 +60,7 @@ import { TutorialDungeonMechanics } from '../core/TutorialDungeonMechanics';
 import { DungeonCompletionSystem } from '../core/DungeonCompletionSystem';
 import { DungeonCompletionConditions } from '../core/DungeonCompletionConditions';
 import { MovementAuthority } from '../core/MovementAuthority';
-import { noteGroundedSample, resolveConfirmedGroundedPosition, resolveGroundedPosition } from '../core/GroundedPosition';
+import { noteGroundedSample, resolveConfirmedGroundedPosition, resolveGroundedPosition, clearGroundedSample } from '../core/GroundedPosition';
 
 const db = new JsonAdapter();
 
@@ -3083,6 +3083,31 @@ export class LevelHandler {
                     Date.now() + LevelHandler.ROOM_TRANSITION_GRACE_MS
                 );
                 PetHandler.armMountTravelProtection(client, 4000, true);
+
+                // The floor sample belongs to the room it was measured in.
+                //
+                // It is only tagged with the *level*, which is not fine enough inside a
+                // dungeon: the room changed, the level did not, so the old room's floor point
+                // stays "confirmed" and every path that prefers a confirmed sample over the
+                // live position keeps re-pinning this body to the room it walked out of.
+                // Pushing the body without clearing it first actively re-sends the stale
+                // point, which is why this push alone did not move anybody.
+                const levelBody = LevelHandler.getCurrentLevelMap(client)?.get(client.clientEntID);
+                for (const entity of [client.entities.get(client.clientEntID), levelBody]) {
+                    if (entity) {
+                        clearGroundedSample(entity);
+                    }
+                }
+
+                // The grace above stops the server clamping the player back into the room they
+                // left, but it does not tell anyone else they moved. A room change is a single
+                // large jump, and it does not arrive as movement deltas anyone can relay -- so
+                // the other clients keep drawing the body exactly where it was, and the player
+                // is shown standing in the room they walked out of for the rest of the run.
+                // Push the authoritative body now, and let the resync pass cover the case where
+                // they are still mid-teleport with no floor sample to place them on yet.
+                EntityHandler.refreshPlayerSnapshot(client);
+                EntityHandler.schedulePlayerVisibilityResync(client);
             }
             LevelHandler.maybeStartTutorialDungeonTraversalTutorial(client, roomId);
         }
@@ -5866,6 +5891,14 @@ export class LevelHandler {
         if (!isSelf && Boolean((levelEntity ?? ent)?.isPlayer)) {
             return;
         }
+        if (isSelf) {
+            // Movement is the one packet a live player always produces, which makes it the
+            // cheapest place to keep the "everyone in this scope can see everyone" invariant
+            // true. It is throttled and only draws bodies the viewer is missing, so a healthy
+            // scope pays two set lookups; a body lost after the spawn retries stopped comes
+            // back on the next step instead of staying gone for the rest of the run.
+            EntityHandler.reconcilePlayerVisibilityOnActivity(client);
+        }
         if (isSelf && !isDefeatEntState) {
             const nowMs = MovementAuthority.nowMs();
             const movementResult = MovementAuthority.validateIncrementalMovement(
@@ -5874,7 +5907,8 @@ export class LevelHandler {
                 deltaX,
                 deltaY,
                 nowMs,
-                [deltaVX, velocityY]
+                [deltaVX, velocityY],
+                isAirborne
             );
             if (!movementResult.accepted) {
                 const cappedMovement = MovementAuthority.commitCappedRejectedMovement(client, movementResult, nowMs);

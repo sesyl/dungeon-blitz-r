@@ -234,6 +234,11 @@ async function startServers(): Promise<void> {
 
     staticServer.start();
     AILogic.start();
+    // Started here rather than lazily from the first spawn: it is the thing that keeps every
+    // screen showing every other player in the same scope, and hanging it off a packet path is
+    // exactly the mistake that kept party members invisible to each other for several rounds.
+    // It is idle while nobody is in a shared scope.
+    EntityHandler.startPlayerVisibilitySweep();
     gameServer.start();
 }
 

@@ -219,7 +219,8 @@ export class MovementAuthority {
         deltaX: number,
         deltaY: number,
         nowMs: number = MovementAuthority.nowMs(),
-        extraPacketValues: unknown[] = []
+        extraPacketValues: unknown[] = [],
+        airborne: boolean = false
     ): MovementValidationResult {
         const state = client.movementAuthority ?? MovementAuthority.createState();
         client.movementAuthority = state;
@@ -303,8 +304,31 @@ export class MovementAuthority {
                 return MovementAuthority.result(true, 'mobility_grace', attemptedX, attemptedY, state, elapsedMs, mobilityAllowed, actualDistance);
             }
         }
-        if (actualDistance > normalAllowed) {
+        // Gravity is not a speed cheat.
+        //
+        // The budget above is a *running* budget, and the distance it is compared against is
+        // the hypotenuse -- so a falling body is scored as though it had run the height of its
+        // fall. The drop from a dungeon spawn point to the floor is around 1600px in a couple
+        // of frames, which is far outside any run budget, so every entry fall was rejected and
+        // the server's authoritative position stayed at the top of the drop. The player's own
+        // client had long since landed, so nothing looked wrong to them -- but every other
+        // screen was handed that stuck position and drew their body ~1600px above the room,
+        // out of frame. That is the whole of "we are standing together and cannot see each
+        // other": the bodies were being drawn, in the air, off camera.
+        //
+        // While the packet says airborne, judge only the horizontal component against the run
+        // budget. Falling gains a cheater nothing -- the client's own collision decides where
+        // the body lands -- and an actual teleport is still caught by the single-packet cap
+        // above, which applies to the full distance.
+        const horizontalDistance = Math.abs(attemptedX - state.lastAcceptedX);
+        const speedDistance = airborne ? horizontalDistance : actualDistance;
+        if (speedDistance > normalAllowed) {
             return MovementAuthority.reject(client, state, 'speed_delta', attemptedX, attemptedY, elapsedMs, normalAllowed, actualDistance, normalizedNowMs);
+        }
+        if (airborne) {
+            state.movementBudgetDistance = Math.max(0, state.movementBudgetDistance - horizontalDistance);
+            MovementAuthority.accept(state, attemptedX, attemptedY, normalizedNowMs, 'accepted_airborne');
+            return MovementAuthority.result(true, 'accepted', attemptedX, attemptedY, state, elapsedMs, normalAllowed, actualDistance);
         }
         state.movementBudgetDistance = Math.max(0, state.movementBudgetDistance - actualDistance);
         MovementAuthority.accept(state, attemptedX, attemptedY, normalizedNowMs, 'accepted');
