@@ -3106,6 +3106,7 @@ export class LevelHandler {
                 // is shown standing in the room they walked out of for the rest of the run.
                 // Push the authoritative body now, and let the resync pass cover the case where
                 // they are still mid-teleport with no floor sample to place them on yet.
+                EntityHandler.markPlayerBodyNeedsRedraw(client);
                 EntityHandler.refreshPlayerSnapshot(client);
                 EntityHandler.schedulePlayerVisibilityResync(client);
             }
@@ -5119,6 +5120,11 @@ export class LevelHandler {
             client.lastDoorId = doorId;
             client.lastDoorTargetLevel = targetLevel;
             client.armPendingTransferGrace();
+            // Every door, whichever way its transition ends up being classified. The player is
+            // about to be somewhere else with no deltas describing the move, so the copies of
+            // their body on the other screens are about to be stale. The resync fires after the
+            // arrival, when there is a position worth drawing.
+            EntityHandler.schedulePlayerVisibilityResync(client);
             PetHandler.armMountTravelProtection(client, 5000, false);
             const bb = new BitBuffer();
             const responseDoorId = LevelHandler.resolveDoorResponseId(currentLevel, targetLevel, doorId);
@@ -5910,6 +5916,14 @@ export class LevelHandler {
                 [deltaVX, velocityY],
                 isAirborne
             );
+            // A jump this large is a door, a room transition or any other teleport, and it
+            // produces no deltas the other clients can follow -- their copy of this body stays
+            // where it was until something re-seeds it. Catching it here, rather than on a room
+            // id, is what makes this work for *every* transition in a dungeon: the room id can
+            // sit at 0 for a whole run, and did.
+            if (movementResult.accepted && movementResult.reason === 'transition_grace') {
+                EntityHandler.markPlayerBodyNeedsRedraw(client);
+            }
             if (!movementResult.accepted) {
                 const cappedMovement = MovementAuthority.commitCappedRejectedMovement(client, movementResult, nowMs);
                 if (cappedMovement.clamped) {

@@ -304,22 +304,156 @@ export class EntityHandler {
         return EntityHandler.HOSTILE_BASE_HITPOINTS[clampedLevel];
     }
 
+    // The tier each run is being fought at, latched per scope. See
+    // `resolveServerAuthorityEntityLevel`.
+    private static readonly serverAuthorityScopeLevels = new Map<string, number>();
+
+    /**
+     * The highest player level in this scope, or 0 when the scope has nobody in it.
+     *
+     * Read from the live sessions rather than any index: this decides how hard the whole run
+     * is, and a session missed here would size the dungeon for the wrong party.
+     */
+    private static resolvePartyEnemyLevelForScope(levelScope: string): number {
+        if (!levelScope) {
+            return 0;
+        }
+
+        // Most callers hand this a full scope key, but a good number pass the bare level name
+        // -- and matching only on the full key made those silently miss every session and fall
+        // back to the authored tier, which then re-sized hostiles that had been built correctly.
+        // A bare name matches on the level instead, which is the same answer whenever a level
+        // holds one run, and never sizes a run *down* when it holds more than one.
+        const scopeLevelName = LevelConfig.normalizeLevelName(getScopeLevelName(levelScope));
+        const matchWholeScope = levelScope !== scopeLevelName;
+
+        let highest = 0;
+        for (const session of GlobalState.sessionsByToken.values()) {
+            if (!session.playerSpawned) {
+                continue;
+            }
+            const matches = matchWholeScope
+                ? getClientLevelScope(session) === levelScope
+                : LevelConfig.normalizeLevelName(session.currentLevel) === scopeLevelName;
+            if (!matches) {
+                continue;
+            }
+            const characterLevel = Math.round(Number(session.character?.level ?? 0) || 0);
+            if (characterLevel > highest) {
+                highest = characterLevel;
+            }
+        }
+
+        return highest;
+    }
+
     /**
      * The tier a server-authority hostile is sized and stamped at.
      *
-     * The dungeon's own authored tier, so The East Wing's enemies are level 29 rather than
-     * the flat 50 this used to pin every server-authority level to. It is a property of
-     * the level, so every party member gets the same one -- see
-     * `LevelConfig.getAuthoredDungeonEnemyLevel`. The old constant survives only as the
-     * fallback for a scope whose level cannot be resolved (an entity looked up by name
-     * alone, mid-transfer state), where sizing a hostile down would be worse than leaving
-     * it where it was.
+     * **The highest player level in the run**, and one number for the whole party. This is the
+     * point: a level 22 and a level 50 fighting together must be looking at the same enemy with
+     * the same health pool, or the enemy dies on one screen while the other still sees it on
+     * full health. Sizing it per viewer is what produced that, and sizing it from the level's
+     * own authored tier (what this did before) still leaves a level 50 walking through a tier
+     * 29 dungeon unopposed.
+     *
+     * **Latched per scope, and it only ever rises.** Recomputing it freely would resize every
+     * enemy the moment somebody loads, unloads or dies -- health pools moving under a fight in
+     * progress. Rising is safe because `normalizeServerAuthorityHostileState` preserves the
+     * damage already dealt, so a bigger pool means the enemy has proportionally more left, not
+     * that it comes back to life.
+     *
+     * The authored dungeon tier, and then the old flat constant, remain the fallback for a
+     * scope with nobody in it -- an entity looked up by name alone, or mid-transfer state --
+     * where sizing a hostile down would be worse than leaving it where it was.
      */
     static resolveServerAuthorityEntityLevel(levelNameOrScope: string | null | undefined): number {
-        const authoredLevel = LevelConfig.getAuthoredDungeonEnemyLevel(
-            getScopeLevelName(String(levelNameOrScope ?? ''))
-        );
-        return authoredLevel > 0 ? authoredLevel : EntityHandler.SERVER_AUTHORITY_ENTITY_LEVEL;
+        const scopeKey = String(levelNameOrScope ?? '');
+        const authoredLevel = LevelConfig.getAuthoredDungeonEnemyLevel(getScopeLevelName(scopeKey));
+        const fallback = authoredLevel > 0 ? authoredLevel : EntityHandler.SERVER_AUTHORITY_ENTITY_LEVEL;
+        if (!scopeKey) {
+            return fallback;
+        }
+
+        const partyLevel = EntityHandler.resolvePartyEnemyLevelForScope(scopeKey);
+        const latched = EntityHandler.serverAuthorityScopeLevels.get(scopeKey) ?? 0;
+        const resolved = Math.max(latched, partyLevel);
+        if (resolved <= 0) {
+            return fallback;
+        }
+
+        const clamped = Math.max(1, Math.min(EntityHandler.HOSTILE_BASE_HITPOINTS.length - 1, resolved));
+        if (clamped !== latched) {
+            EntityHandler.serverAuthorityScopeLevels.set(scopeKey, clamped);
+            if (latched > 0) {
+                console.log(
+                    `[DungeonDifficulty] ${scopeKey} enemy level ${latched} -> ${clamped} ` +
+                    '(a higher-level party member joined the run)'
+                );
+                // Resize what is already standing, or the run would be half at the old tier:
+                // the pools are recomputed with the damage already dealt preserved, so nothing
+                // resurrects and nothing dies from the change itself.
+                EntityHandler.rescaleServerAuthorityHostilesForScope(scopeKey);
+            }
+        }
+        return clamped;
+    }
+
+    /**
+     * Re-size every server-owned hostile in a scope to the run's current tier.
+     *
+     * Only runs when the tier actually changed, which is once per run at most in practice.
+     * `normalizeServerAuthorityHostileState` preserves the absolute damage already dealt, so a
+     * bigger pool leaves the enemy proportionally healthier rather than reviving it, and a dead
+     * one stays dead.
+     */
+    private static rescaleServerAuthorityHostilesForScope(levelScope: string): void {
+        const levelMap = GlobalState.levelEntities.get(levelScope);
+        if (!levelMap) {
+            return;
+        }
+
+        const levelName = getScopeLevelName(levelScope);
+        let rescaled = 0;
+        for (const entity of levelMap.values()) {
+            if (!EntityHandler.isServerAuthorityHostileEntity(levelName, entity)) {
+                continue;
+            }
+
+            const oldMaxHp = Math.max(0, Math.round(Number(entity.maxHp ?? 0)));
+            const newMaxHp = EntityHandler.estimateServerAuthorityHostileMaxHp(entity, levelScope);
+            if (oldMaxHp === newMaxHp) {
+                continue;
+            }
+
+            // Keep the *fraction* of health, not the absolute damage. Preserving absolute
+            // damage is right when a pool is rebuilt at the same tier, but on a rescale it
+            // hands a bigger pool back to an enemy that was nearly dead -- and to one that was
+            // already dead, which is a corpse standing back up mid-fight.
+            const dead = Boolean(entity.dead) || Boolean(entity.destroyed) ||
+                Number(entity.entState ?? EntityState.ACTIVE) === EntityState.DEAD;
+            const oldHp = Math.max(0, Math.round(Number(entity.hp ?? oldMaxHp)));
+            const remainingFraction = oldMaxHp > 0 ? Math.max(0, Math.min(1, oldHp / oldMaxHp)) : 1;
+            const newHp = dead ? 0 : Math.max(1, Math.round(newMaxHp * remainingFraction));
+
+            entity.level = EntityHandler.resolveServerAuthorityEntityLevel(levelScope);
+            entity.maxHp = newMaxHp;
+            entity.hp = newHp;
+            entity.healthDelta = newHp - newMaxHp;
+            entity.health_delta = entity.healthDelta;
+            rescaled++;
+        }
+
+        if (rescaled > 0) {
+            console.log(`[DungeonDifficulty] ${levelScope} resized ${rescaled} hostiles to the new tier`);
+        }
+    }
+
+    /** Drop a finished run's latched difficulty so the next run sizes itself from its own party. */
+    static forgetServerAuthorityScopeLevel(levelScope: string): void {
+        if (levelScope) {
+            EntityHandler.serverAuthorityScopeLevels.delete(levelScope);
+        }
     }
 
     static estimateServerAuthorityHostileMaxHp(entity: any, levelNameOrScope?: string | null): number {
@@ -417,6 +551,12 @@ export class EntityHandler {
         if (!levelScope || EntityHandler.serverAuthoritySeededScopes.has(levelScope)) {
             return;
         }
+
+        // Settle the run's tier before a single hostile is built, so every pool in this scope is
+        // sized from the same number. Resolving it lazily let the tier rise *during* a fight --
+        // the pools were recomputed mid-hit and the enemy inflated back out of the damage that
+        // had just been dealt to it.
+        EntityHandler.resolveServerAuthorityEntityLevel(levelScope);
 
         const destroyedIds = EntityHandler.getServerAuthorityDestroyedIds(levelScope);
 
@@ -1507,6 +1647,8 @@ export class EntityHandler {
         }
 
         EntityHandler.serverAuthoritySeededScopes.delete(levelScope);
+        // A fresh run sizes itself from its own party, so the latched difficulty goes with it.
+        EntityHandler.forgetServerAuthorityScopeLevel(levelScope);
         EntityHandler.serverAuthorityDestroyedIdsByScope.delete(levelScope);
         EntityHandler.serverAuthorityDestroyedFingerprintsByScope.delete(levelScope);
         EntityHandler.clearDeadServerAuthorityHostileTombstones(levelScope, 'new_run');
@@ -1877,7 +2019,11 @@ export class EntityHandler {
             Number(entity.team ?? 0) === EntityTeam.ENEMY &&
             !Boolean(entity.clientSpawned)
         ) {
-            EntityHandler.normalizeServerAuthorityHostileState(levelName, entity);
+            // The client's *scope*, not the bare level name. The run's tier is a property of
+            // one instance of the dungeon -- the party standing in it -- and a bare level name
+            // matches no session's scope, so it silently fell back to the authored tier and
+            // built the hostile at the wrong size.
+            EntityHandler.normalizeServerAuthorityHostileState(getClientLevelScope(client) || levelName, entity);
             return;
         }
 
@@ -4368,6 +4514,14 @@ export class EntityHandler {
 
         EntityHandler.resetFinishedDungeonRunScope(client, levelName);
 
+        // Settle the run's tier before anything in this level is built. The NPC pass below
+        // creates hostiles directly rather than through `seedServerAuthorityHostiles`, so
+        // settling only there left the first hostiles sized at the authored tier and the tier
+        // rising later -- mid-fight -- when something else happened to resolve it.
+        if (EntityHandler.usesServerAuthorityHostiles(levelName)) {
+            EntityHandler.resolveServerAuthorityEntityLevel(getClientLevelScope(client));
+        }
+
         let levelMap = EntityHandler.getLevelMap(levelName, client.levelInstanceId);
         if (!levelMap) {
             levelMap = EntityHandler.getLevelMap(levelName, client.levelInstanceId, true) ?? new Map<number, any>();
@@ -4759,6 +4913,35 @@ export class EntityHandler {
      * drops the packet the body stays gone and `knownEntityIds` still claims it is there,
      * which suppresses every later reconcile. Forget it, then draw it again.
      */
+    /**
+     * Mark this player's body stale on every other screen in the scope.
+     *
+     * Room ids are not a reliable trigger. They only move when the client sends one of the room
+     * packets, and a dungeon can run its whole length reporting room 0 -- the live
+     * `[Visibility]` log showed exactly that, `room=0` for both players, so a redraw keyed on
+     * the room id never fired for any door.
+     *
+     * What is always true of a door, a room transition or any other teleport is that the jump
+     * produces **no movement deltas anyone can relay**. So the trigger is the jump itself,
+     * wherever the server sees one, and it covers every transition in every dungeon without
+     * depending on the client's room bookkeeping. Forgetting the draw record is enough: the
+     * sweep redraws within a tick, and only for the screens that are actually holding a stale
+     * copy.
+     */
+    static markPlayerBodyNeedsRedraw(subject: Client): void {
+        const entityId = Math.max(0, Math.round(Number(subject.clientEntID) || 0));
+        const levelScope = getClientLevelScope(subject);
+        if (entityId <= 0 || !levelScope) {
+            return;
+        }
+
+        for (const viewer of EntityHandler.getSpawnedSessionsInScope(levelScope)) {
+            if (viewer !== subject) {
+                viewer.drawnPlayerRoomIds?.delete(entityId);
+            }
+        }
+    }
+
     static resendPlayerBodyToViewer(viewer: Client, subjectEntityId: number): boolean {
         const entityId = Math.max(0, Math.round(Number(subjectEntityId) || 0));
         if (entityId <= 0 || !viewer.playerSpawned) {

@@ -988,6 +988,51 @@ function testSpawnFallIsNotRejectedAsASpeedCheat(): void {
     );
 }
 
+/**
+ * Every door and transition, not just the ones that move a room id.
+ *
+ * The redraw used to be keyed on `currentRoomId` changing, and a dungeon can run its whole
+ * length reporting room 0 -- the live `[Visibility]` log showed `room=0` for both players, so
+ * that trigger never fired for any door. What is always true of a door, a room transition or
+ * any other teleport is that it produces no deltas the other clients can follow, so the jump
+ * itself is the trigger and the room id is not consulted at all.
+ */
+function testEveryTransitionMarksTheBodyStaleEvenWithoutARoomChange(): void {
+    const host = createClient('Telahair', 95001, 50);
+    const walker = createClient('Lanorut', 95002, 22);
+    seedStandingBody(host);
+    seedStandingBody(walker);
+
+    const sent: Array<{ viewer: string; subject: number }> = [];
+    const originalSendEntity = (EntityHandler as any).sendEntity;
+    (EntityHandler as any).sendEntity = (viewer: Client, entity: any) => {
+        sent.push({ viewer: String(viewer.character?.name ?? '?'), subject: Number(entity?.id ?? 0) });
+        viewer.knownEntityIds.add(Number(entity?.id ?? 0));
+    };
+    try {
+        (EntityHandler as any).syncPlayerVisibilityInScope(walker);
+        sent.length = 0;
+
+        // Settled: nothing to do.
+        EntityHandler.reconcilePlayerVisibilityInScope(walker);
+        assert.equal(sent.length, 0, 'a settled scope must send nothing');
+
+        // The walker goes through a door. The room id does not move -- this dungeon reports 0
+        // throughout -- so only the transition itself can mark the body stale.
+        assert.equal(walker.currentRoomId, host.currentRoomId, 'both players are in the same reported room');
+        EntityHandler.markPlayerBodyNeedsRedraw(walker);
+        EntityHandler.reconcilePlayerVisibilityInScope(walker);
+    } finally {
+        (EntityHandler as any).sendEntity = originalSendEntity;
+    }
+
+    assert.deepEqual(
+        sent.map((entry) => `${entry.viewer}:${entry.subject}`),
+        [`Telahair:${walker.clientEntID}`],
+        'the transitioning body must be redrawn for the other screen, with no room change involved'
+    );
+}
+
 async function run(): Promise<void> {
     ensureDataLoaded();
 
@@ -1033,6 +1078,8 @@ async function run(): Promise<void> {
         testAPlayerIdNeverCollidesWithAnotherClientsOwnBodyId();
         resetState();
         testSpawnFallIsNotRejectedAsASpeedCheat();
+        resetState();
+        testEveryTransitionMarksTheBodyStaleEvenWithoutARoomChange();
         console.log('player visibility regression passed');
     } finally {
         resetState();

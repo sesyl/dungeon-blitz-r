@@ -285,14 +285,16 @@ function assertSevenCanonicalHostiles(scope: string): void {
     assert.equal(hostiles.length, 7, 'JC_Mini1Hard should seed exactly seven canonical hostiles');
     // Dread JC_Mini1Hard is authored at tier 44 (mapId 44 over baseId 29), so that is the
     // tier every party member gets -- not the flat 50 this used to be pinned to.
-    const authoredLevel = LevelConfig.getAuthoredDungeonEnemyLevel('JC_Mini1Hard');
-    assert.equal(authoredLevel, 44, 'JC_Mini1Hard is authored at Dread tier 44');
+    // The run is fought at the highest player level in the party, shared by everyone in it,
+    // so both members see the same enemy with the same pool and it dies at the same moment.
+    const partyLevel = EntityHandler.resolveServerAuthorityEntityLevel(scope);
+    assert.equal(partyLevel, 50, 'a level 50 party fights level 50 enemies');
     for (const hostile of hostiles) {
         assert.equal(hostile.clientSpawned, false, `${hostile.name} should be server canonical`);
-        assert.equal(hostile.level, authoredLevel, `${hostile.name} should carry the dungeon's own tier`);
+        assert.equal(hostile.level, partyLevel, `${hostile.name} should carry the party's tier`);
         assert.equal(
             Number(hostile.maxHp ?? 0),
-            EntityHandler.estimateServerAuthorityHostileMaxHp(hostile, 'JC_Mini1Hard'),
+            EntityHandler.estimateServerAuthorityHostileMaxHp(hostile, scope),
             `${hostile.name} should be sized from the dungeon tier`
         );
         assert.ok(Number(hostile.maxHp ?? 0) > 100, `${hostile.name} should have a health pool`);
@@ -395,7 +397,7 @@ async function testProxyAttachHitDeathAndDestroy(): Promise<void> {
     assert.equal(zeus.sentPackets.some((packet) => packet.id === 0x0D), false, 'seed proxy attach should not destroy local actor');
     // Both proxies carry the dungeon's own tier, so the two players are looking at the same
     // enemy at the same difficulty rather than at whatever their own level implies.
-    const proxyLevel = LevelConfig.getAuthoredDungeonEnemyLevel('JC_Mini1Hard');
+    const proxyLevel = EntityHandler.resolveServerAuthorityEntityLevel(getLevelScopeKey(zeus.currentLevel, zeus.levelInstanceId));
     assert.equal(zeus.entities.get(500001)?.level, proxyLevel, 'starter proxy cache should carry the dungeon tier');
     assert.equal(telahair.entities.get(600001)?.level, proxyLevel, 'joiner proxy cache should carry the same dungeon tier');
     const attachCanonical = GlobalState.levelEntities.get(scope)?.get(910001);

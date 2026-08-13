@@ -222,20 +222,20 @@ function attachProxy(client: FakeClient, localId: number, enemyIndex: number): v
 function assertFiveCanonicalHostiles(scope: string): void {
     const hostiles = getHostiles(scope);
     assert.equal(hostiles.length, 5, 'JC_Mini2 should seed exactly five canonical hostiles');
-    // The East Wing is authored at tier 29, so that is the difficulty every party member
-    // gets -- not the flat 50 every server-authority level used to be pinned to, and not
-    // anything derived from who is standing in the room.
-    const authoredLevel = LevelConfig.getAuthoredDungeonEnemyLevel('JC_Mini2');
-    assert.equal(authoredLevel, 29, 'JC_Mini2 is authored at tier 29');
+    // The run is fought at the highest player level in the party, and that one number is
+    // shared by everyone in it -- so a level 22 and a level 50 see the same enemy with the
+    // same health pool, and it dies at the same moment on both screens.
+    const partyLevel = EntityHandler.resolveServerAuthorityEntityLevel(scope);
+    assert.equal(partyLevel, 50, 'a level 50 party fights level 50 enemies');
     for (const hostile of hostiles) {
         assert.equal(hostile.clientSpawned, false, `${hostile.name} should be server canonical`);
-        assert.equal(hostile.level, authoredLevel, `${hostile.name} should carry the dungeon's own tier`);
+        assert.equal(hostile.level, partyLevel, `${hostile.name} should carry the party's tier`);
         assert.equal(hostile.requiredForClear, true, `${hostile.name} should be required for clear`);
         assert.equal(hostile.generatedFromScript, true, `${hostile.name} should be marked as script-generated`);
         assert.ok(String(hostile.spawnKey ?? '').includes('the_east_wing'), `${hostile.name} should keep a stable East Wing spawn key`);
         assert.equal(
             Number(hostile.maxHp ?? 0),
-            EntityHandler.estimateServerAuthorityHostileMaxHp(hostile, 'JC_Mini2'),
+            EntityHandler.estimateServerAuthorityHostileMaxHp(hostile, scope),
             `${hostile.name} should be sized from the dungeon tier`
         );
         assert.ok(Number(hostile.maxHp ?? 0) > 100, `${hostile.name} should have a health pool`);

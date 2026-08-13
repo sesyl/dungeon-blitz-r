@@ -3605,12 +3605,18 @@ export class CombatHandler {
             }
 
             const resolved = EntityHandler.resolveHostileLocalIdForViewer(viewer, levelScope, canonicalId, 'hp-broadcast-all');
+            // A party member with no bound copy of this enemy used to be skipped outright, and
+            // only the *completion boss* got the fallbacks below. That is the delayed death:
+            // their client keeps simulating its own copy at full health, receives none of the
+            // corrections the attacker's hits produce, and the enemy only drops when something
+            // else happens to bind the copy. Health is shared, so every party member in the
+            // scope is addressed -- through their own registered id when they have one, and
+            // through the canonical id otherwise, which is the id their client was given when
+            // the server owns the spawn.
             const localId = resolved.ok && resolved.localId > 0
                 ? resolved.localId
-                : TutorialDungeonMechanics.isCompletionBoss(levelScope, entity)
-                    ? EntityHandler.getRegisteredHostileLocalIdForViewer(viewer, entity) ||
-                        EntityHandler.resolveEntityLocalId(viewer, canonicalId)
-                    : 0;
+                : EntityHandler.getRegisteredHostileLocalIdForViewer(viewer, entity) ||
+                    EntityHandler.resolveEntityLocalId(viewer, canonicalId);
             if (localId <= 0) {
                 continue;
             }
@@ -3902,6 +3908,19 @@ export class CombatHandler {
 
     private static relayServerAuthorityNpcDeath(anchor: Client, levelScope: string, entity: any): void {
         if (!CombatHandler.isServerAuthoritySyncNpc(levelScope, entity)) {
+            // The kill is leaving the shared path entirely, so no other party member will be
+            // told about it here. In a level that owns its hostiles server-side this should not
+            // happen, and when it does it is the whole explanation for "it died on their screen
+            // and stayed up on mine" -- so say which enemy and why it was not shared.
+            if (Number(entity?.team ?? 0) === EntityTeam.ENEMY && !entity?.isPlayer) {
+                console.warn(
+                    `[EnemyDeath] NOT SHARED ${getScopeLevelName(levelScope)} ` +
+                    `id=${Math.round(Number(entity?.id ?? 0))} name=${String(entity?.name ?? '?')} ` +
+                    `killer=${String(anchor.character?.name ?? '?')} ` +
+                    `clientSpawned=${Boolean(entity?.clientSpawned)} ` +
+                    `syncLevel=${CombatHandler.SERVER_AUTHORITY_SYNC_LEVELS.has(getScopeLevelName(levelScope))}`
+                );
+            }
             return;
         }
 
@@ -3920,13 +3939,40 @@ export class CombatHandler {
         entity.healthDelta = -maxHp;
         entity.health_delta = -maxHp;
 
+        // Actually remove it from every screen.
+        //
+        // This is the whole bug. `broadcastServerAuthorityNpcDestroy` was reachable from
+        // exactly one place -- `handleEntityDestroy`, i.e. only when a *client* announced the
+        // kill. When the server itself decided the enemy died, which is what a killing power
+        // hit does, it marked the canonical dead, relayed the health and told nobody to remove
+        // the body. The killer's own client had already dropped its copy from its own
+        // simulation, so it looked right to them; every other client kept its copy standing and
+        // went on hitting it, which is why the live log showed the same id dying fourteen times
+        // between the two players. Death is only real once the destroy goes out.
+        CombatHandler.broadcastServerAuthorityNpcDestroy(anchor, levelScope, entityId, entity, true);
+
         const viewers: string[] = [];
-        for (const viewer of GlobalState.getSessionsInLevelScope(levelScope)) {
+        const skipped: string[] = [];
+        for (const viewer of Array.from(GlobalState.sessionsByToken.values()).filter(
+            (session) => session.playerSpawned && getClientLevelScope(session) === levelScope
+        )) {
             if (!CombatHandler.canReceiveServerAuthorityNpcRelay(anchor, viewer, levelScope)) {
+                if (viewer !== anchor && viewer.playerSpawned) {
+                    skipped.push(String(viewer.character?.name ?? viewer.token));
+                }
                 continue;
             }
             viewers.push(String(viewer.character?.name ?? viewer.token));
         }
+        // One line per shared kill, naming exactly who was told. "A party member killed
+        // something and it stayed alive on my screen" is otherwise indistinguishable from a
+        // dozen causes, and this says which: nobody told them, or they were told and their
+        // client kept it.
+        console.log(
+            `[EnemyDeath] ${getScopeLevelName(levelScope)} id=${Math.round(Number(entity?.id ?? 0))} ` +
+            `name=${String(entity?.name ?? '?')} killer=${String(anchor.character?.name ?? '?')} ` +
+            `told=[${viewers.join(',')}]${skipped.length ? ` NOT-TOLD=[${skipped.join(',')}]` : ''}`
+        );
         CombatHandler.refreshServerAuthorityProgressWithRetries(levelScope, 'authoritative_death_relay');
     }
 
@@ -3942,12 +3988,33 @@ export class CombatHandler {
         }
 
         const viewers: Array<{ name: string; token: number; localEntityId: number }> = [];
-        for (const viewer of GlobalState.getSessionsInLevelScope(levelScope)) {
+        for (const viewer of Array.from(GlobalState.sessionsByToken.values()).filter(
+            (session) => session.playerSpawned && getClientLevelScope(session) === levelScope
+        )) {
             if (!CombatHandler.canReceiveServerAuthorityNpcRelay(anchor, viewer, levelScope)) {
                 continue;
             }
 
-            const localEntityId = EntityHandler.resolveEntityLocalId(viewer, entityId);
+            // The viewer's own id for this enemy, not the canonical one.
+            //
+            // `resolveEntityLocalId` falls back to the canonical id when the viewer has no
+            // alias, so the destroy went out addressed to an id that client had never heard of
+            // -- a silent no-op. In The East Wing every client also spawns its own copy of each
+            // hostile ([[east-wing-is-both-client-spawn-and-server-authority]]), so the copy on
+            // the other screen is under *their* id and the canonical destroy did nothing: the
+            // enemy died for the killer and stayed standing for everyone else, and the log
+            // showed the same id dying over and over because each pass told them again. The
+            // resolver below adopts an unbound local copy rather than giving up on it.
+            const resolved = EntityHandler.resolveHostileLocalIdForViewer(
+                viewer,
+                levelScope,
+                entityId,
+                'server-authority-destroy'
+            );
+            const localEntityId = resolved.ok && resolved.localId > 0
+                ? resolved.localId
+                : EntityHandler.getRegisteredHostileLocalIdForViewer(viewer, destroyedEntity) ||
+                    EntityHandler.resolveEntityLocalId(viewer, entityId);
             viewer.send(0x0D, CombatHandler.buildDestroyEntityPayload(localEntityId, immediate));
             viewer.entities.delete(localEntityId);
             viewer.entities.delete(entityId);
@@ -3959,6 +4026,18 @@ export class CombatHandler {
                 localEntityId
             });
         }
+
+        // The id each screen was actually addressed with. `told=[...]` alone proved the packet
+        // went out but not that it meant anything: a viewer whose own copy is under a different
+        // id is sent the canonical one and ignores it silently. `Name:localId` next to
+        // `canonical=` says immediately whether the destroy could have landed -- if a viewer
+        // shows the canonical id and their enemy stays up, their copy is unbound and the fix is
+        // in the matching, not in the relay.
+        console.log(
+            `[EnemyDestroy] ${getScopeLevelName(levelScope)} canonical=${entityId} ` +
+            `name=${String(destroyedEntity?.name ?? '?')} ` +
+            `sentTo=[${viewers.map((entry) => `${entry.name}:${entry.localEntityId}`).join(',')}]`
+        );
     }
 
     private static broadcastToSameLevel(
@@ -5667,6 +5746,22 @@ export class CombatHandler {
                         resolution.entity,
                         'powerhit'
                     );
+                    // And when that hit was the killing one, remove the body everywhere.
+                    //
+                    // The health broadcast alone only tells the other clients the enemy is at
+                    // zero; their copy stands there at zero and they keep hitting it. Nothing on
+                    // this path ever sent a destroy -- the only caller of the destroy broadcast
+                    // was `handleEntityDestroy`, which runs when a *client* announces a kill --
+                    // so a server-decided death was invisible to everyone but the killer, whose
+                    // own client had already dropped its copy. That is the same enemy id dying
+                    // over and over in the live log.
+                    if (CombatHandler.isTerminalHostileEntity(resolution.entity)) {
+                        CombatHandler.relayServerAuthorityNpcDeath(
+                            sourceSession ?? client,
+                            levelScope,
+                            resolution.entity
+                        );
+                    }
                 }
             }
             if (resolution.entity) {
@@ -6274,11 +6369,22 @@ export class CombatHandler {
                     );
                     return true;
                 }
-                if (Math.round(Number(targetEntity.hp ?? 0)) > 0) {
+                // A client reporting health for an enemy the server has already buried is a
+                // client whose own copy has not caught up -- typically the one whose local copy
+                // never bound to the canonical. Answering it by clearing `dead` revives the
+                // enemy for the entire party, which is the loop the `[EnemyDeath]` log showed:
+                // the same id dying again and again as one screen kept putting it back up.
+                // Death is the server's to decide; a stale report gets the death sent back at
+                // it, not authority over it.
+                const alreadyBuried = Boolean(targetEntity.dead) || Boolean(targetEntity.destroyed);
+                if (!alreadyBuried && Math.round(Number(targetEntity.hp ?? 0)) > 0) {
                     targetEntity.dead = false;
                     if (Number(targetEntity.entState ?? EntityState.ACTIVE) === EntityState.DEAD) {
                         targetEntity.entState = EntityState.ACTIVE;
                     }
+                } else if (alreadyBuried) {
+                    CombatHandler.relayServerAuthorityNpcDeath(client, levelScope, targetEntity);
+                    return true;
                 }
                 EntityHandler.normalizeServerAuthorityHostileState(levelScope, targetEntity);
                 const currentHp = Math.max(0, Math.round(Number(targetEntity.hp ?? 0)));
