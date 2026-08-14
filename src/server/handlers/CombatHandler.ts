@@ -3935,6 +3935,12 @@ export class CombatHandler {
         entity.maxHp = maxHp;
         entity.hp = 0;
         entity.dead = true;
+        // The corpse is about to be removed from every screen, so this death is final. A later
+        // health report from a client whose own copy had not caught up must not undo it -- that
+        // is the loop the [EnemyDeath] log showed, the same id dying six times. A merely
+        // *premature* dead flag, set from an unverified client report and never destroyed,
+        // stays correctable.
+        entity.destroyed = true;
         entity.entState = EntityState.DEAD;
         entity.healthDelta = -maxHp;
         entity.health_delta = -maxHp;
@@ -3976,6 +3982,102 @@ export class CombatHandler {
         CombatHandler.refreshServerAuthorityProgressWithRetries(levelScope, 'authoritative_death_relay');
     }
 
+    /**
+     * A dead enemy is dead for the whole party, and stays that way.
+     *
+     * Death was delivered by a single broadcast at the moment it happened, so any member who
+     * missed that one packet -- unbound copy, mid-load, a relay that resolved to an id their
+     * client had never heard of -- kept the body standing for the rest of the run. That is two
+     * enemies alive on one screen and none on the other, and clear progress diverging with it
+     * (65% against 75% in the live report).
+     *
+     * So the dead set is reconciled instead of announced: every pass, any hostile the scope has
+     * buried that a viewer is still holding gets the destroy again. It sends nothing once the
+     * screens agree, which is almost always, and it cannot leave a corpse behind because it
+     * does not depend on any single packet having arrived.
+     */
+    // Six sweep ticks, so about six seconds. Long enough that a client which was mid-load or
+    // mid-bind when the first pair arrived still gets one it can act on; short enough that a
+    // corpse nobody can remove does not turn into a permanent packet stream.
+    private static readonly DEAD_HOSTILE_RETRY_LIMIT = 6;
+    private static readonly deadHostileRetries = new Map<string, number>();
+
+    static reconcileDeadHostilesForScope(levelScope: string): void {
+        const levelName = getScopeLevelName(levelScope);
+        if (!levelScope || !EntityHandler.usesServerAuthorityHostiles(levelName)) {
+            return;
+        }
+
+        const levelMap = GlobalState.levelEntities.get(levelScope);
+        if (!levelMap) {
+            return;
+        }
+
+        const viewers = Array.from(GlobalState.sessionsByToken.values()).filter(
+            (session) => session.playerSpawned && getClientLevelScope(session) === levelScope
+        );
+        if (viewers.length < 2) {
+            return;
+        }
+
+        for (const entity of levelMap.values()) {
+            if (!CombatHandler.isServerAuthoritySyncNpc(levelScope, entity)) {
+                continue;
+            }
+            if (!CombatHandler.isTerminalHostileEntity(entity)) {
+                continue;
+            }
+
+            const canonicalId = Math.max(0, Math.round(Number(entity?.id ?? 0)));
+            if (canonicalId <= 0) {
+                continue;
+            }
+
+            for (const viewer of viewers) {
+                const resolved = EntityHandler.resolveHostileLocalIdForViewer(
+                    viewer,
+                    levelScope,
+                    canonicalId,
+                    'dead-hostile-reconcile'
+                );
+                const localId = resolved.ok && resolved.localId > 0
+                    ? resolved.localId
+                    : EntityHandler.getRegisteredHostileLocalIdForViewer(viewer, entity) ||
+                        EntityHandler.resolveEntityLocalId(viewer, canonicalId);
+                if (localId <= 0) {
+                    continue;
+                }
+                // Retry on a counter, not on the server's own bookkeeping.
+                //
+                // This gated on `viewer.entities`/`knownEntityIds` and then cleared both in the
+                // same pass, so it sent exactly once per corpse per screen -- and if that single
+                // delivery did not take effect on the client, nothing ever tried again. That is
+                // one-shot delivery wearing a reconcile's clothes, which is the failure this
+                // whole mechanism exists to prevent. Counting attempts instead means the pair
+                // really is re-sent, once a second, until the corpse has had every reasonable
+                // chance to go -- and then stops, so it can never become a stream.
+                const retryKey = `${viewer.token}:${canonicalId}`;
+                const attempts = CombatHandler.deadHostileRetries.get(retryKey) ?? 0;
+                if (attempts >= CombatHandler.DEAD_HOSTILE_RETRY_LIMIT) {
+                    continue;
+                }
+                CombatHandler.deadHostileRetries.set(retryKey, attempts + 1);
+
+                // Same pair as the destroy broadcast: dead state, then destroy.
+                viewer.send(0x07, EntityHandler.buildEntityStateDeadPayload(localId));
+                viewer.send(0x0D, CombatHandler.buildDestroyEntityPayload(localId, true));
+                viewer.entities.delete(localId);
+                viewer.entities.delete(canonicalId);
+                viewer.knownEntityIds.delete(localId);
+                viewer.knownEntityIds.delete(canonicalId);
+                console.log(
+                    `[EnemyDestroy] reconcile ${levelName} canonical=${canonicalId} ` +
+                    `name=${String(entity?.name ?? '?')} -> ${String(viewer.character?.name ?? '?')}:${localId}`
+                );
+            }
+        }
+    }
+
     private static broadcastServerAuthorityNpcDestroy(
         anchor: Client,
         levelScope: string,
@@ -4015,6 +4117,8 @@ export class CombatHandler {
                 ? resolved.localId
                 : EntityHandler.getRegisteredHostileLocalIdForViewer(viewer, destroyedEntity) ||
                     EntityHandler.resolveEntityLocalId(viewer, entityId);
+            // Dead state first, destroy second: the destroy removes it for anything with a brain, and the dead state is what lets the engine retire everything else by itself.
+            viewer.send(0x07, EntityHandler.buildEntityStateDeadPayload(localEntityId));
             viewer.send(0x0D, CombatHandler.buildDestroyEntityPayload(localEntityId, immediate));
             viewer.entities.delete(localEntityId);
             viewer.entities.delete(entityId);
@@ -6457,7 +6561,7 @@ export class CombatHandler {
             }
 
             const snapshots = CombatHandler.snapshotPartySharedHostileViewerHealth(client, levelScope, targetEntity);
-            if (healthState.currentHp > 0) {
+            if (!Boolean(targetEntity.destroyed) && healthState.currentHp > 0) {
                 targetEntity.dead = false;
                 if (Number(targetEntity.entState ?? EntityState.ACTIVE) === EntityState.DEAD) {
                     targetEntity.entState = EntityState.ACTIVE;
@@ -6514,7 +6618,7 @@ export class CombatHandler {
             return true;
         }
 
-        if (healthState.currentHp > 0) {
+        if (!Boolean(targetEntity.destroyed) && healthState.currentHp > 0) {
             targetEntity.dead = false;
             if (Number(targetEntity.entState ?? EntityState.ACTIVE) === EntityState.DEAD) {
                 targetEntity.entState = EntityState.ACTIVE;

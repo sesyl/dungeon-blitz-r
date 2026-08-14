@@ -456,7 +456,11 @@ function syncClientRev(repoRoot, swfPath) {
     const defaultSwf = path.join(repoRoot, TARGETS[0].swf);
     if (path.resolve(swfPath) !== defaultSwf || !fs.existsSync(indexHtml)) return;
 
-    const digest = crypto.createHash('sha256').update(fs.readFileSync(swfPath)).digest('hex').slice(0, 12);
+    // sha1, to match StaticServer.clientRevision. That token -- not this literal -- is what
+    // actually busts the browser cache (every SWF request is redirected to it), and it is
+    // derived from sha1 of the same file. Writing a sha256 here made the two disagree, so the
+    // number in index.html looked authoritative while meaning nothing.
+    const digest = crypto.createHash('sha1').update(fs.readFileSync(swfPath)).digest('hex').slice(0, 12);
     const html = fs.readFileSync(indexHtml, 'utf8');
     const updated = html.replace(/clientrev=[^&`"'$]+/, `clientrev=swf-${digest}`);
     if (updated !== html) {

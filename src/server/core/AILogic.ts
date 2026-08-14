@@ -301,13 +301,31 @@ export class AILogic {
             playersByRoom.set(roomId, roomPlayers);
         }
 
+        // Where the server DRAWS the hostiles, it must also drive them. The skip below exists
+        // because a server-authority level normally leaves the bodies to the clients, which
+        // run the authored AI and animation on their own copies -- server movement would only
+        // fight them. That reasoning does not survive the server owning the bodies: in a
+        // canonical-visible level there is no client copy to animate anything, so skipping the
+        // AI leaves every enemy standing still with its idle pose. This is what The East Wing
+        // looked like the moment its enemies became server-drawn.
+        const serverDrawsHostiles = EntityHandler.usesCanonicalVisibleServerAuthorityHostiles(levelName);
+
         // Iterate over Map entries to get ID and Object
         let updatedNpcs = 0;
         for (const [entId, npc] of levelEntities.entries()) {
             if (npc.isPlayer || npc.team !== 2) continue; // Only Enemy NPCs
-            if (EntityHandler.usesServerAuthorityHostiles(levelName) && !AILogic.ENABLE_SERVER_AUTHORITY_HOSTILE_AI) continue; // JC_Mini1Hard uses client proxies for AI/animation.
+            if (
+                EntityHandler.usesServerAuthorityHostiles(levelName) &&
+                !serverDrawsHostiles &&
+                !AILogic.ENABLE_SERVER_AUTHORITY_HOSTILE_AI
+            ) continue; // JC_Mini1Hard uses client proxies for AI/animation.
             if (Boolean(npc.hybridCanonicalHostile) && !AILogic.ENABLE_SERVER_AUTHORITY_HOSTILE_AI) continue; // TODO: feature-flag server AI for promoted hybrid hostiles.
             if (npc.clientSpawned) continue; // Client-owned monsters should not receive server AI movement.
+            // The room boss is the one hostile a canonical-visible level still lets the client
+            // spawn, because its room's am_Boss cue drives the whole encounter. The server does
+            // not draw it, so it must not move it either -- that would animate a body no one
+            // is looking at and fight the client's own boss script.
+            if (serverDrawsHostiles && EntityHandler.isCanonicalRoomBossEntity(npc)) continue;
             // Simple dead check (if no hp prop, assume 100)
             if ((npc.hp !== undefined && npc.hp <= 0)) continue;
             const npcRoomId = getRoomBossAwareRoomId(npc);

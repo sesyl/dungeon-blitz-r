@@ -34,11 +34,105 @@ import {
 // the second Tag Ugo in Dread Goblin Hideout only disappears when the rank plate
 // arrives.
 //
-// This patch gives that branch a fallback: when the entity has no brain, call
-// Entity.DestroyEntity(true) directly — the same call Game's own tick loop makes
-// when it decides an entity is finished. Entities that do have a brain keep the
-// original deferred flag, so the blast radius is exactly the case that was
-// silently broken.
+// ============================================================================
+// DO NOT APPLY. The bytecode below is correct and does not crash -- it was
+// applied and playtested on 2026-08-14 -- but it is the wrong lever. Read this
+// before touching this file again.
+// ============================================================================
+//
+// `var_38` is NOT an AI brain. It is `class_122(game, entity)`, the server-driven
+// remote-entity record: var_914/var_950 are the server's target physPosX/physPosY,
+// var_1794 its velocity, var_2778 the deferred-destroy flag. An entity only has one
+// if the *server* created it on that client through 0x0F. An entity the client
+// spawned itself from a level cue -- which is every hostile in a CLIENT_SPAWN level
+// like JC_Mini2 -- has none, and so has no server channel at all.
+//
+// That is why the whole family of server-side fixes bounced off it. The 0x07
+// incremental reader, LinkUpdater.method_1072, opens with
+//
+//     if (!ent || !ent.var_38) return;
+//
+// so the dead-state packet is discarded at the door -- and it is the packet that
+// would otherwise do the right thing, because further down it holds exactly the
+// retirement the engine wants:
+//
+//     if (ent.entState == Entity.const_6 && !wasAlreadyDead) {
+//         ent.gfx.m_Seq.method_428();            // the death animation
+//         ent.var_217 = game.mTimeThisTick;      // the corpse stamp
+//     }
+//
+// Two things went wrong when this patch shipped:
+//
+//   * No death animation. Setting the tombstone skips method_428 and the corpse
+//     delay entirely; the body is spliced on the next tick.
+//   * Enemies vanished that had never been hit. 0x0D was a silent no-op for these
+//     entities, which masked every routine destroy the server already sends --
+//     relevance culling above all. Honouring it made all of them lethal. Any patch
+//     that makes 0x0D effective here must be paired with a server audit of the ~20
+//     destroy send sites in EntityHandler/CombatHandler.
+//
+// The two designs actually worth pursuing, in order of preference:
+//
+//   1. Make the server own these hostiles for real, so they arrive by 0x0F and get a
+//      class_122. Then 0x07, 0x0D, the death animation and the corpse timing all work
+//      with no client patch. This was attempted once and reverted because suppressing
+//      the client's own level cues only caught ~16 of 34.
+//   2. Patch method_1072's early return to admit brainless entities, guarding the
+//      three `ent.var_38.x += ...` writes that follow. This restores the animation and
+//      the timing and needs no 0x0D change at all -- but it does not fit the in-place
+//      byte budget, so it needs a length-changing patch and a code_length fixup that
+//      swfPatchUtils does not do today.
+//
+// What follows is the tombstone design, kept because it is a fully verified example
+// of the one safe way to retire a brainless entity, should that ever be wanted again.
+//
+// THE MECHANISM: set the engine's own retire-me tombstone, `Entity.var_1835`, and
+// call nothing at all.
+//
+// Game.method_1970 ticks brainless entities under `if (!entity.var_38)` -- exactly
+// this set -- and retires them itself:
+//
+//     if (!entity.method_1770()) { entity.DestroyEntity(true); entities.splice(i, 1); }
+//
+// method_1770 was fully deobfuscated on 2026-08-14 (see build/deob.js; the prologue
+// yields local7=false/local8=true, which folds 142 of its 179 branches away). Its
+// head is:
+//
+//     local1 = this.velocity.x;
+//     local2 = uint(this.var_1.mTimeThisTick);
+//     if (this.var_1835) return false;                 // <- the tombstone
+//     if (this.entState == const_6 && !this.var_24 && !this.behaviorType.var_995
+//      && local2 - this.var_217 >= TIME_MONSTER_LAYS_DEAD_BEFORE_VANISHING)
+//         return false;
+//     ... normal tick, which reads var_818 and var_195 with NO null check ...
+//
+// So one property write makes the engine remove the body on its next tick -- destroy
+// AND splice, in the order it expects. Nothing is torn down here, so nothing this
+// branch touches can be null, and a property write cannot throw.
+//
+// Two earlier designs are recorded here because both shipped and both were wrong.
+//
+// 1. Calling Entity.DestroyEntity, in either argument form (2026-08-13):
+//
+//      DestroyEntity(true)  -> crash on dungeon entry. `true` reaches the branch
+//                              that calls linkUpdater.method_1397(this) -- the
+//                              client announcing the destroy back to the server --
+//                              for an entity the client never owned.
+//      DestroyEntity(false) -> crash on dungeon entry, with this stack:
+//                                Error #1009 at Entity/method_1770()
+//                                             at Game/method_1970()
+//
+//    DestroyEntity nulls 20 fields including var_818 and var_195, and -- this is the
+//    part that makes it unusable -- it sets the tombstone on `this.var_183.var_1835`,
+//    the entity's *ghost*, never on `this`. So the corpse stays in Game.entities with
+//    var_1835 still false, sails past the guard above on the next tick, and dies
+//    dereferencing the fields DestroyEntity just emptied.
+//
+// 2. `ent.var_217 = 0`, to pretend the corpse timer had elapsed (2026-08-14). This
+//    stopped the crash but did not remove anything: that return is gated on all four
+//    of entState == const_6, !var_24, !behaviorType.var_995 and the timer, and the
+//    server's 0x07 dead-state packet only supplies the stamp. var_1835 is the one
+//    condition that stands alone.
 //
 // The rewrite fits inside the original 38-byte tail, so no branch outside the
 // replaced region moves and the method body keeps its length.
@@ -71,9 +165,15 @@ function reportCacheKey(swfPath: string): void {
   );
 }
 
+// Entity's retire-me tombstone: one read site (the head of method_1770) and, before
+// this patch, one write site (DestroyEntity, on the ghost).
+const TOMBSTONE = "var_1835";
+
 // Opcodes used below.
 const OP_NOP = 0x02;
+const OP_PUSHBYTE = 0x24;
 const OP_PUSHTRUE = 0x26;
+const OP_PUSHFALSE = 0x27;
 const OP_GETLOCAL = 0x62;
 const OP_GETPROPERTY = 0x66;
 const OP_SETPROPERTY = 0x61;
@@ -166,14 +266,30 @@ function loadMethod1018(swfPath: string): Context {
   return { ctx, abc, methodBody, code, instructions: disassemble(code, "LinkUpdater.method_1018") };
 }
 
-function multinameIndex(context: Context, name: string, opcodes: number[]): number {
-  // A multiname carries the namespace set of the class that declares it, so the
-  // index must be one this method's own class already uses — see the MultinameL
-  // trap in swfPatchUtils. Take it from an existing instruction in this method
-  // where possible, and otherwise from anywhere in LinkUpdater.
-  const classIndex = classIndexByName(context.abc, "LinkUpdater");
+const KIND_QNAME = 0x07;
+
+// `var_1835` is declared `internal` on Entity and LinkUpdater never touches it, so
+// the index has to be borrowed from Entity's own code. That is safe here and only
+// here: the borrowed multiname is required to be a QName, which names one absolute
+// namespace and therefore resolves the same from any class. A Multiname or
+// MultinameL resolves through a namespace *set* belonging to the class it was
+// written for, and borrowing one of those is the trap swfPatchUtils warns about.
+function borrowedPropertyMultiname(context: Context, className: string, name: string, opcodes: number[]): number {
+  const index = multinameIndex(context, className, name, opcodes);
+  const kind = context.abc.multinameKinds[index];
+  if (kind !== KIND_QNAME) {
+    throw new PatchError(
+      `"${name}" resolves to multiname ${index} of kind 0x${kind.toString(16)}, not a QName; ` +
+      "it cannot be borrowed from another class. Refusing to patch.",
+    );
+  }
+  return index;
+}
+
+function multinameIndex(context: Context, className: string, name: string, opcodes: number[]): number {
+  const classIndex = classIndexByName(context.abc, className);
   if (classIndex === null) {
-    throw new PatchError("Could not find LinkUpdater class.");
+    throw new PatchError(`Could not find ${className} class.`);
   }
 
   const methodIdxs = new Set<number>();
@@ -191,7 +307,7 @@ function multinameIndex(context: Context, name: string, opcodes: number[]): numb
     const code = context.ctx.body.subarray(body.codeStart, body.codeStart + body.codeLen);
     let instructions: Instruction[];
     try {
-      instructions = disassemble(code, `LinkUpdater.method#${methodIdx}`);
+      instructions = disassemble(code, `${className}.method#${methodIdx}`);
     } catch {
       continue;
     }
@@ -206,7 +322,7 @@ function multinameIndex(context: Context, name: string, opcodes: number[]): numb
     }
   }
 
-  throw new PatchError(`Could not resolve a LinkUpdater-scoped multiname for "${name}".`);
+  throw new PatchError(`Could not resolve a ${className}-scoped multiname for "${name}".`);
 }
 
 // The exact original tail, so a changed client is refused rather than corrupted.
@@ -238,19 +354,23 @@ function findOriginalTail(context: Context): { start: number; end: number; var38
   );
 }
 
+// The patched branch calls nothing, so the marker is the tombstone write itself.
+// Looking for a DestroyEntity call here -- as this did while that was the design --
+// reports an already-patched client as unpatched and rewrites the tail a second
+// time, over a body that no longer holds the original 17-instruction sequence.
 function alreadyPatched(context: Context): boolean {
   return context.instructions.some(
     (instruction) =>
-      instruction.opcode === OP_CALLPROPVOID &&
+      instruction.opcode === OP_SETPROPERTY &&
       instruction.operands.length > 0 &&
-      context.abc.multinameNames[instruction.operands[0][1]] === "DestroyEntity",
+      context.abc.multinameNames[instruction.operands[0][1]] === TOMBSTONE,
   );
 }
 
-function buildTail(tail: { start: number; end: number; var38: number; flag: number }, destroyEntity: number): Buffer {
+function buildTail(tail: { start: number; end: number; var38: number; flag: number }, tombstone: number): Buffer {
   const var38 = u30(tail.var38);
   const flag = u30(tail.flag);
-  const destroy = u30(destroyEntity);
+  const retire = u30(tombstone);
 
   // Offsets are computed from the region start so the two branches land exactly
   // on the alternative path and on the method's original returnvoid.
@@ -266,7 +386,7 @@ function buildTail(tail: { start: number; end: number; var38: number; flag: numb
     (1 + flag.length) + // setproperty var_2778
     1; // returnvoid
 
-  const afterCall = noBrain + 2 + 1 + (1 + destroy.length + 1);
+  const afterCall = noBrain + 2 + 1 + (1 + retire.length);
   const total = tail.end - tail.start;
   const returnOffset = total - 1;
   if (afterCall > returnOffset) {
@@ -284,9 +404,21 @@ function buildTail(tail: { start: number; end: number; var38: number; flag: numb
     OP_PUSHTRUE,
     OP_SETPROPERTY, ...flag,
     OP_RETURNVOID,
+    // `ent.var_1835 = true` -- one property write, and deliberately nothing else.
+    //
+    // This is the engine's own retire-me tombstone, and the first thing the brainless tick
+    // Entity.method_1770 tests: `if (this.var_1835) return false`, reached before any field
+    // DestroyEntity would have emptied. Game.method_1970 answers a false return with
+    // `DestroyEntity(true); entities.splice(i, 1)` -- destroy AND splice, in the order the
+    // engine expects -- and it only ticks entities with no brain, which is exactly this set.
+    //
+    // Calling anything from here is what crashed the client, twice; a property write cannot
+    // throw, and nothing is torn down here, so this branch can no longer produce either
+    // failure. The header explains why DestroyEntity is not a substitute: it stamps the
+    // tombstone on the entity's ghost, `this.var_183`, and never on `this`.
     OP_GETLOCAL, 4,
     OP_PUSHTRUE,
-    OP_CALLPROPVOID, ...destroy, 1,
+    OP_SETPROPERTY, ...retire,
   ];
 
   while (bytes.length < returnOffset) {
@@ -313,8 +445,8 @@ function patchSwf(swfPath: string, verify: boolean): void {
   }
 
   const tail = findOriginalTail(context);
-  const destroyEntity = multinameIndex(context, "DestroyEntity", [OP_CALLPROPVOID, OP_CALLPROPERTY]);
-  const data = buildTail(tail, destroyEntity);
+  const tombstone = borrowedPropertyMultiname(context, "Entity", TOMBSTONE, [OP_SETPROPERTY, OP_GETPROPERTY]);
+  const data = buildTail(tail, tombstone);
 
   const patches: BytePatch[] = [
     {
@@ -332,7 +464,7 @@ function patchSwf(swfPath: string, verify: boolean): void {
   reportCacheKey(swfPath);
   console.log(
     `${swfPath}: patched LinkUpdater.method_1018 ` +
-    `(${data.length} bytes rewritten in place, DestroyEntity multiname ${destroyEntity}).`,
+    `(${data.length} bytes rewritten in place, ${TOMBSTONE} multiname ${tombstone}).`,
   );
 }
 

@@ -84,7 +84,26 @@ export class EntityHandler {
         'JC_Mini2Hard',
         'TutorialDungeon'
     ]);
-    private static readonly FIRST_SIGHT_SERVER_AUTHORITY_HOSTILE_LEVELS = new Set<string>();
+    // Levels whose hostiles the server DRAWS, not just adjudicates. Every enemy arrives as a
+    // real remote entity through 0x0F, which is the only way it gets a class_122 record
+    // (`Entity.var_38`) -- and without one the client's 0x07 and 0x0D readers both return
+    // early, so no server-decided health or death can ever reach it.
+    //
+    // This is one half of a pair. The other is the client cue suppression in LevelsJC.swf
+    // (`src/server/scripts/patch-levelsjc-east-wing-suppress-client-cues.js`), which holds the
+    // rooms' authored cues so the client draws none of them. Ship either half alone and the
+    // dungeon is empty or every enemy is drawn twice -- `LinkUpdater.method_1828` only merges
+    // duplicates that both carry the REMOTE flag, so a client-spawned copy is never deduped
+    // against a server-sent one.
+    //
+    // The roster comes from data/dungeonSpawns/levelsJC_the_east_wing.enemies.json: 34
+    // hostiles plus the room-3 boss. The boss is deliberately NOT drawn by the server -- room
+    // 3 drives the whole encounter through its am_Boss cue -- so it stays client-spawned and
+    // the suppression skips it too.
+    private static readonly FIRST_SIGHT_SERVER_AUTHORITY_HOSTILE_LEVELS = new Set<string>([
+        'JC_Mini2',
+        'JC_Mini2Hard'
+    ]);
     private static readonly CANONICAL_VISIBLE_PROXY_MATCH_MAX_DISTANCE_SQ = 400 * 400;
     static readonly SERVER_AUTHORITY_ENTITY_LEVEL = 50;
     private static readonly HOSTILE_BASE_HITPOINTS = [
@@ -127,6 +146,17 @@ export class EntityHandler {
 
     private static usesClientSpawn(levelName: string): boolean {
         return EntityHandler.CLIENT_SPAWN_LEVELS.has(levelName);
+    }
+
+    /**
+     * Whether this canonical hostile is the room's completion boss, as the spawn registry
+     * marks it. Bosses in a canonical-visible level must not be drawn by the server: their
+     * room's cue owns the encounter script, so the client keeps spawning them.
+     */
+    static isCanonicalRoomBossEntity(entityProps: any): boolean {
+        return Boolean(entityProps?.boss) ||
+            Boolean(entityProps?.roomBoss) ||
+            Boolean(entityProps?.isRoomBoss);
     }
 
     static usesServerAuthorityHostiles(levelName: string | null | undefined): boolean {
@@ -1705,6 +1735,15 @@ export class EntityHandler {
         client.knownEntityIds.delete(localId);
         client.drawnPlayerRoomIds?.delete(localId);
         client.entityIdAliases?.delete(localId);
+        // Dead state first, destroy second.
+        //
+        // This is the path that takes away a client's *own* copy of a hostile when it could not
+        // be bound to the canonical one -- and in The East Wing every client spawns such copies
+        // ([[east-wing-is-both-client-spawn-and-server-authority]]). Sending only the destroy
+        // left every brainless copy standing, because the client's 0x0D reader only touches the
+        // brain: two enemies alive on one screen and none on the other, with the clear count
+        // diverging behind them. The dead state is what lets the engine retire the rest.
+        client.send(0x07, EntityHandler.buildEntityStateDeadPayload(localId));
         client.send(0x0D, EntityHandler.buildDestroyEntityPayload(localId));
     }
 
@@ -3773,7 +3812,26 @@ export class EntityHandler {
         client.send(0x0D, EntityHandler.buildDestroyEntityPayload(entityId));
     }
 
-    private static buildEntityStateDeadPayload(entityId: number): Buffer {
+    /**
+     * The dead-state movement update that makes the client retire an entity by itself.
+     *
+     * `0x0D` alone is not enough and cannot be made enough from the server: the client's reader
+     * only sets a flag on the entity's *brain*, so an entity without one is never removed
+     * ([[client-ignores-destroy-for-brainless-entities]]) -- and the SWF patch that would fix
+     * that crashes the client, twice over.
+     *
+     * This is the way through. The client's own 0x07 reader, on seeing an entity enter the dead
+     * state, stamps `var_217` with the current tick. `Game.method_1970` then retires it through
+     * the path it uses for its own corpses -- `if (!entity.method_1770()) { DestroyEntity(true);
+     * entities.splice(i, 1); }`, where `method_1770` returns false once
+     * `now - var_217 >= TIME_MONSTER_LAYS_DEAD_BEFORE_VANISHING`. Destroy *and* splice, in the
+     * order the engine expects, with no patch at all.
+     *
+     * So every path that removes a shared hostile sends this first and the destroy second: the
+     * destroy takes the entity away immediately for anything holding a brain, and this makes
+     * the engine take away everything else a moment later.
+     */
+    static buildEntityStateDeadPayload(entityId: number): Buffer {
         const bb = new BitBuffer(false);
         bb.writeMethod4(entityId);
         bb.writeMethod45(0);
@@ -4576,9 +4634,20 @@ export class EntityHandler {
                 noteDungeonRunEntitySeen(client, id, entityProps);
                 const canonicalDead = Boolean((entityProps as any).dead) ||
                     Number(entityProps.entState ?? EntityState.ACTIVE) === EntityState.DEAD;
-                if (!canonicalVisibleServerAuthority) {
+                if (!canonicalVisibleServerAuthority || canonicalDead) {
                     continue;
                 }
+                // The room boss stays client-spawned. Its room drives the whole encounter
+                // through the am_Boss cue -- Defeated(), AddBuff, Skit, the two cutscenes --
+                // so the client must keep drawing it, and the level SWF's cue suppression
+                // skips it for the same reason. Sending it here would draw it twice:
+                // LinkUpdater.method_1828 only merges duplicates that both carry the REMOTE
+                // flag, so a client-spawned copy is never deduped against a server-sent one.
+                if (EntityHandler.isCanonicalRoomBossEntity(entityProps)) {
+                    continue;
+                }
+                client.entities.set(id, { ...entityProps });
+                EntityHandler.sendEntity(client, entityProps);
                 continue;
             }
             client.entities.set(id, { ...entityProps });
@@ -5018,6 +5087,73 @@ export class EntityHandler {
      * healthy party is silent.
      */
     private static lastVisibilityReport = '';
+    private static lastHostileSnapshotReport = '';
+
+    /**
+     * Does every party member hold the same set of enemies the run actually has?
+     *
+     * In The East Wing each client also spawns its own copy of every hostile, so the shared run
+     * only works while each of those copies is *bound* to a canonical
+     * ([[east-wing-is-both-client-spawn-and-server-authority]]). An unbound copy is a private
+     * enemy: its own health, its own death, its own contribution to the clear count -- which is
+     * exactly "the player who joined later does not get the same snapshot".
+     *
+     * Binding is the one thing none of the delivery fixes can compensate for, and it is
+     * invisible from the outside, so it gets counted here: per member, how many of the scope's
+     * canonical hostiles they can resolve, and which ones they cannot. Logged only on change.
+     */
+    private static reportHostileSnapshotAgreement(levelScope: string): void {
+        const levelName = getScopeLevelName(levelScope);
+        if (!EntityHandler.usesServerAuthorityHostiles(levelName)) {
+            return;
+        }
+
+        const levelMap = GlobalState.levelEntities.get(levelScope);
+        if (!levelMap) {
+            return;
+        }
+
+        const canonicalIds: number[] = [];
+        for (const entity of levelMap.values()) {
+            if (
+                EntityHandler.isServerAuthorityHostileEntity(levelName, entity) &&
+                !EntityHandler.isEntityDead(entity)
+            ) {
+                canonicalIds.push(Math.max(0, Math.round(Number(entity.id ?? 0))));
+            }
+        }
+        if (canonicalIds.length === 0) {
+            return;
+        }
+
+        const parts: string[] = [];
+        for (const viewer of EntityHandler.getSpawnedSessionsInScope(levelScope)) {
+            const missing = canonicalIds.filter((id) => !EntityHandler.canClientResolveCanonicalEntity(viewer, id));
+            parts.push(
+                `${String(viewer.character?.name ?? '?')}:${canonicalIds.length - missing.length}/${canonicalIds.length}` +
+                (missing.length ? ` missing=[${missing.join(',')}]` : '')
+            );
+        }
+
+        // Who is in a party but standing here alone? That is the split, and it is the reason
+        // this line can otherwise look empty when two people believe they are together.
+        const partied = EntityHandler.getSpawnedSessionsInScope(levelScope)
+            .filter((session) => getPartyIdForClient(session) > 0);
+        const aloneInParty = partied.length === 1
+            ? ` PARTY-MEMBER-ALONE-IN-THIS-SCOPE=${String(partied[0].character?.name ?? '?')}`
+            : '';
+
+        const report = `${levelScope} live=${canonicalIds.length} ${parts.sort().join(' ')}${aloneInParty}`;
+        if (report === EntityHandler.lastHostileSnapshotReport) {
+            return;
+        }
+        EntityHandler.lastHostileSnapshotReport = report;
+        if (aloneInParty || parts.some((part) => part.includes('missing='))) {
+            console.warn(`[HostileSnapshot] members do not hold the same enemies: ${report}`);
+        } else {
+            console.log(`[HostileSnapshot] ${report}`);
+        }
+    }
 
     /**
      * Say, every second, what the server believes about each pair who should see each other.
@@ -5147,8 +5283,21 @@ export class EntityHandler {
                 seenScopes.add(levelScope);
 
                 const sessions = EntityHandler.getSpawnedSessionsInScope(levelScope);
+                // Reported before the two-member gate, deliberately. A scope holding a single
+                // session is not "nothing to check": if that session is in a party, it IS the
+                // party split -- the one failure none of the delivery fixes can touch. Gating
+                // this behind the gate hid exactly the case it exists to show.
+                EntityHandler.reportHostileSnapshotAgreement(levelScope);
                 if (sessions.length < 2) {
                     continue;
+                }
+
+                // A dead enemy is dead for the whole party. Reconciled here rather than
+                // announced once, so a member who missed the death packet does not spend the
+                // rest of the run fighting a corpse nobody else can see.
+                {
+                    const { CombatHandler } = require('./CombatHandler') as typeof import('./CombatHandler');
+                    CombatHandler.reconcileDeadHostilesForScope(levelScope);
                 }
                 for (const viewer of sessions) {
                     for (const subject of sessions) {

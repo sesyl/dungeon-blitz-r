@@ -17,6 +17,12 @@ import { EntityHandler } from '../handlers/EntityHandler';
 import { BitBuffer } from '../network/protocol/bitBuffer';
 import { BitReader } from '../network/protocol/bitReader';
 
+// The East Wing's four rooms author 34 hostiles plus the room-3 boss. This was 5 for as
+// long as the extractor discovered enemies from each room's declared ActionScript fields,
+// which only see a cue the level author bothered to name -- 30 of the 35 are unnamed
+// timeline instances. If this number moves, regenerate the registry and check why.
+const EAST_WING_ENEMY_COUNT = 35;
+
 type SentPacket = {
     id: number;
     payload: Buffer;
@@ -219,9 +225,9 @@ function attachProxy(client: FakeClient, localId: number, enemyIndex: number): v
     );
 }
 
-function assertFiveCanonicalHostiles(scope: string): void {
+function assertAllCanonicalHostiles(scope: string): void {
     const hostiles = getHostiles(scope);
-    assert.equal(hostiles.length, 5, 'JC_Mini2 should seed exactly five canonical hostiles');
+    assert.equal(hostiles.length, EAST_WING_ENEMY_COUNT, 'JC_Mini2 should seed every authored cue as a canonical hostile');
     // The run is fought at the highest player level in the party, and that one number is
     // shared by everyone in it -- so a level 22 and a level 50 see the same enemy with the
     // same health pool, and it dies at the same moment on both screens.
@@ -249,25 +255,38 @@ function assertFiveCanonicalHostiles(scope: string): void {
 function testRegistryLoad(): void {
     const config = getConfig();
     assert.equal(config.source?.swf, 'src/client/content/localhost/p/cbp/LevelsJC.swf', 'registry should identify the source SWF');
-    assert.equal(config.enemies.length, 5, 'registry should contain five enemies');
-    assert.equal(config.enemies.filter((enemy) => enemy.requiredForClear).length, 5, 'all East Wing enemies should be required for clear');
+    assert.equal(config.enemies.length, EAST_WING_ENEMY_COUNT, 'registry should contain every authored enemy');
+    assert.equal(config.enemies.filter((enemy) => enemy.requiredForClear).length, EAST_WING_ENEMY_COUNT, 'all East Wing enemies should be required for clear');
     assert.equal(config.enemies.filter((enemy) => enemy.boss || enemy.miniboss).length, 1, 'registry should identify one boss/miniboss');
 
     const npcs = NpcLoader.getNpcsForLevel('JC_Mini2');
-    assert.equal(npcs.length, 5, 'NpcLoader should expose the generated East Wing enemies');
+    assert.equal(npcs.length, EAST_WING_ENEMY_COUNT, 'NpcLoader should expose the generated East Wing enemies');
     assert.equal(npcs[0].id, 920001, 'generated canonical ids should be stable');
     assert.equal(usesSharedDungeonProgress('JC_Mini2'), true, 'generated required-for-clear dungeon should use shared progress');
 }
 
-function testInitialCanonicalNoVisibleServerSnapshots(): void {
+function testInitialCanonicalSendsVisibleServerHostiles(): void {
     const zeus = createFakeClient('Zeus', 'east-wing-initial', 13933, 1);
     attachPlayer(zeus);
     GlobalState.sessionsByToken.set(zeus.token, zeus as never);
     EntityHandler.sendInitialLevelEntities(zeus as never, zeus.currentLevel);
     const scope = getLevelScopeKey(zeus.currentLevel, zeus.levelInstanceId);
 
-    assertFiveCanonicalHostiles(scope);
-    assert.equal(zeus.sentPackets.some((packet) => packet.id === 0x0F), false, 'initial sync should not send visible server hostile snapshots');
+    assertAllCanonicalHostiles(scope);
+    // The server DRAWS these hostiles now: each must arrive as a real remote entity through
+    // 0x0F, because that is the only path that gives the client's copy a class_122 record.
+    // Without one, both the 0x07 and the 0x0D readers return early and no server-decided
+    // health or death can ever reach it.
+    const spawned = zeus.sentPackets.filter((packet) => packet.id === 0x0F).length;
+    assert.equal(spawned, EAST_WING_ENEMY_COUNT - 1, 'initial sync should draw every canonical hostile except the room boss');
+
+    // The boss is the exception, and it is load-bearing: room 3 runs the encounter from its
+    // am_Boss cue, so the client keeps spawning it and the level SWF's cue suppression skips
+    // it too. Drawing it here would show it twice -- LinkUpdater.method_1828 only merges
+    // duplicates that both carry the REMOTE flag.
+    const boss = getHostiles(scope).find((hostile) => EntityHandler.isCanonicalRoomBossEntity(hostile));
+    assert.ok(boss, 'the East Wing roster should contain a room boss');
+    assert.equal(zeus.entities.has(Number(boss.id)), false, 'the room boss must stay client-spawned');
 }
 
 async function testProxyAttachKillProgressAndLateJoiner(): Promise<void> {
@@ -299,8 +318,8 @@ async function testProxyAttachKillProgressAndLateJoiner(): Promise<void> {
 
     const totals = getSharedDungeonProgressTotals(starterScope);
     const progressState = recomputeSharedDungeonProgress(starterScope);
-    assert.deepEqual(totals, { total: 5, defeated: 1 }, 'required-for-clear totals should count server canonical enemies');
-    assert.equal(progressState?.progress, 20, 'East Wing progress should be floor(deadRequired / totalRequired * 100)');
+    assert.deepEqual(totals, { total: EAST_WING_ENEMY_COUNT, defeated: 1 }, 'required-for-clear totals should count server canonical enemies');
+    assert.equal(progressState?.progress, Math.floor((1 / EAST_WING_ENEMY_COUNT) * 100), 'East Wing progress should be floor(deadRequired / totalRequired * 100)');
 
     attachPlayer(telahair);
     GlobalState.sessionsByToken.set(telahair.token, telahair as never);
@@ -344,7 +363,7 @@ async function main(): Promise<void> {
         testRegistryLoad();
 
         resetRuntime();
-        testInitialCanonicalNoVisibleServerSnapshots();
+        testInitialCanonicalSendsVisibleServerHostiles();
 
         resetRuntime();
         await testProxyAttachKillProgressAndLateJoiner();

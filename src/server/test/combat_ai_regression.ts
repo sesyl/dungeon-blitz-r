@@ -46,6 +46,44 @@ function createNpc(name: string, extras: Record<string, unknown> = {}): any {
     };
 }
 
+
+// Where the server draws the hostiles it must also drive them. updateLevel used to skip
+// every server-authority level, on the reasoning that the clients animate their own copies
+// -- true until the server owned the bodies. In The East Wing there is no client copy left,
+// so the skip left every enemy standing still in its idle pose.
+function testServerDrawnHostilesGetAi(): void {
+    const scope = 'JC_Mini2#ai-regression';
+    const player = createPlayer('JC_Mini2');
+    player.levelInstanceId = 'ai-regression';
+    player.character.CurrentLevel.x = 60;
+
+    // Every East Wing enemy is requiredForClear, so updateNpc classifies it as a required
+    // boss and uses the tighter aggro radius -- which sits below melee attack range, so a
+    // pulled enemy swings in place instead of moving. Assert the wake, as the miniboss case
+    // above does, which keeps this covering the skip under any radius tuning.
+    const minion = createNpc('Ghoul', {
+        id: 920_401, requiredForClear: true, entState: EntityState.SLEEP, aiIdleAtHome: true
+    });
+    const boss = createNpc('TowerGuard2', {
+        id: 920_402, requiredForClear: true, boss: true, entState: EntityState.SLEEP, aiIdleAtHome: true
+    });
+
+    const levelMap = new Map<number, any>([[minion.id, minion], [boss.id, boss]]);
+    GlobalState.levelEntities.set(scope, levelMap);
+    GlobalState.sessionsByToken.set(player.token, player as never);
+    GlobalState.refreshSessionIndexes(player as never);
+    try {
+        AILogic.updateLevel(scope);
+        assert.equal(minion.entState, EntityState.ACTIVE, 'a server-drawn East Wing hostile should receive server AI');
+        // The room boss is the one hostile the client still spawns, so the server neither
+        // draws nor moves it; driving it would animate a body nobody is looking at.
+        assert.equal(boss.entState, EntityState.SLEEP, 'the client-spawned room boss must not be driven by server AI');
+    } finally {
+        GlobalState.levelEntities.delete(scope);
+        GlobalState.sessionsByToken.delete(player.token);
+    }
+}
+
 function main(): void {
     const dataDir = path.resolve(__dirname, '../data');
     LevelConfig.load(dataDir);
@@ -187,6 +225,8 @@ function main(): void {
     } finally {
         CombatHandler.broadcastEntityViewPacket = originalBroadcast;
     }
+
+    testServerDrawnHostilesGetAi();
 
     console.log('combat_ai_regression: ok');
 }

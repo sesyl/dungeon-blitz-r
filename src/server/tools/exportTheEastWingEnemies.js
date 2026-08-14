@@ -393,6 +393,38 @@ function parseSwfSprites(filePath) {
     return sprites;
 }
 
+// Tag 76 (SymbolClass) maps a character id to its class name. This is the only way to
+// learn the type of a cue that has no instance variable -- and 30 of The East Wing's 35
+// cues have none, so an ActionScript-only reading of the rooms finds five enemies and
+// silently misses the rest. See the placement loop in buildRegistry.
+function parseSymbolClasses(filePath) {
+    const buffer = decompressSwf(filePath);
+    let offset = skipRect(buffer, 8);
+    offset += 4;
+
+    const byCharacterId = new Map();
+    while (offset < buffer.length) {
+        const tag = readTagHeader(buffer, offset);
+        if (tag.code === 0) {
+            break;
+        }
+        if (tag.code === 76) {
+            let cursor = tag.bodyOffset;
+            const count = buffer.readUInt16LE(cursor);
+            cursor += 2;
+            for (let index = 0; index < count; index += 1) {
+                const characterId = buffer.readUInt16LE(cursor);
+                cursor += 2;
+                const name = readCString(buffer, cursor);
+                cursor = name.nextOffset;
+                byCharacterId.set(characterId, name.value);
+            }
+        }
+        offset = tag.nextOffset;
+    }
+    return byCharacterId;
+}
+
 function roundPosition(value) {
     return Math.round(Number(value) * 100) / 100;
 }
@@ -408,14 +440,64 @@ function buildSpawnKey(enemy) {
     ].join('|');
 }
 
+// Canonical ids must survive a regeneration. `dungeon_completion_conditions.json`, the
+// client-spawn boss authority list and every save file name enemies by canonical id, so
+// renumbering them by placement order would silently retarget all three -- the boss above
+// all. Ids already published for a cue are reused; only newly discovered cues take fresh
+// ones, after the highest id the file has ever handed out.
+//
+// A cue is identified by room + timeline depth, which is stable across regenerations and
+// exists for named and unnamed cues alike. Older files predate that key and recorded only
+// `sourceVar`, so those are matched by name first.
+function makeCanonicalIdReserver(existingPath) {
+    const byDepth = new Map();
+    const byVar = new Map();
+    let nextId = target.canonicalIdBase;
+
+    if (fs.existsSync(existingPath)) {
+        const previous = JSON.parse(fs.readFileSync(existingPath, 'utf8').replace(/^﻿/, ''));
+        for (const enemy of previous?.enemies ?? []) {
+            const id = Number(enemy?.canonicalId ?? 0);
+            if (!Number.isFinite(id) || id <= 0) {
+                continue;
+            }
+            if (enemy.sourceRoom && Number.isFinite(Number(enemy.depth))) {
+                byDepth.set(`${enemy.sourceRoom}|${enemy.depth}`, id);
+            }
+            if (enemy.sourceRoom && enemy.sourceVar) {
+                byVar.set(`${enemy.sourceRoom}|${enemy.sourceVar}`, id);
+            }
+            nextId = Math.max(nextId, id);
+        }
+    }
+
+    const used = new Set();
+    return function reserveCanonicalId(roomClassName, depth, sourceVar) {
+        const claimed =
+            (sourceVar ? byVar.get(`${roomClassName}|${sourceVar}`) : undefined) ??
+            byDepth.get(`${roomClassName}|${depth}`);
+        if (claimed !== undefined && !used.has(claimed)) {
+            used.add(claimed);
+            return claimed;
+        }
+        do {
+            nextId += 1;
+        } while (used.has(nextId));
+        used.add(nextId);
+        return nextId;
+    };
+}
+
 function buildRegistry() {
     runFfdecExport();
 
+    const reserveCanonicalId = makeCanonicalIdReserver(outputPath);
     const entTypes = loadEntTypes();
     const roomScripts = target.roomClasses.map(parseRoomScript);
     const levelScript = readActionScript(target.levelClass);
     const levelSymbolId = getSymbolId(levelScript, target.levelClass);
     const sprites = parseSwfSprites(swfPath);
+    const symbolClasses = parseSymbolClasses(swfPath);
     const levelSprite = sprites.get(levelSymbolId);
     if (!levelSprite) {
         throw new Error(`Could not find level sprite ${levelSymbolId}`);
@@ -437,31 +519,43 @@ function buildRegistry() {
             throw new Error(`Missing room sprite placement for ${room.className} symbol ${room.symbolId}`);
         }
 
-        const placementsByName = new Map(
-            roomSprite.placements
-                .filter((placement) => placement.name && placement.matrix)
-                .map((placement) => [placement.name, placement])
-        );
+        const fieldsByName = new Map(room.fields.map((field) => [field.sourceVar, field]));
 
-        for (const field of room.fields) {
-            if (!isHostileEntType(field.type, entTypes)) {
+        // Iterate the room's timeline placements, not its declared fields. A cue only gets
+        // an instance variable if the level author named it, and almost none are named --
+        // driving the loop off `room.fields` is what produced a five-enemy East Wing.
+        for (const placement of roomSprite.placements) {
+            if (!placement.characterId || !placement.matrix) {
                 continue;
             }
 
-            const placement = placementsByName.get(field.sourceVar);
-            if (!placement?.matrix) {
-                throw new Error(`Missing cue placement ${field.sourceVar} in ${room.className}`);
+            const symbolName = symbolClasses.get(placement.characterId) ?? '';
+            if (!symbolName.startsWith('ac_')) {
+                continue;
             }
 
-            const entType = entTypes.get(field.type) ?? {};
+            const type = symbolName.slice(3);
+            const field = placement.name ? fieldsByName.get(placement.name) ?? null : null;
+            if (field && field.type !== type) {
+                throw new Error(
+                    `Cue ${placement.name} in ${room.className} is declared ac_${field.type} ` +
+                    `but its symbol class is ${symbolName}`
+                );
+            }
+            if (!isHostileEntType(type, entTypes)) {
+                continue;
+            }
+
+            const entType = entTypes.get(type) ?? {};
             const rank = String(entType.EntRank ?? '');
-            const boss = rank === 'Boss' || field.sourceVar === 'am_Boss';
+            const boss = rank === 'Boss' || placement.name === 'am_Boss';
+            const canonicalId = reserveCanonicalId(room.className, placement.depth, placement.name);
             const enemy = {
-                id: target.canonicalIdBase + enemies.length + 1,
-                canonicalId: target.canonicalIdBase + enemies.length + 1,
+                id: canonicalId,
+                canonicalId,
                 spawnIndex: enemies.length,
-                type: field.type,
-                name: field.type,
+                type,
+                name: type,
                 x: roundPosition(roomPlacement.matrix.x + placement.matrix.x),
                 y: roundPosition(roomPlacement.matrix.y + placement.matrix.y),
                 roomId: room.roomId,
@@ -474,21 +568,23 @@ function buildRegistry() {
                 miniboss: rank === 'MiniBoss',
                 scripted: false,
                 sourceRoom: room.className,
-                sourceVar: field.sourceVar,
-                sourceLine: field.sourceLine,
+                sourceVar: placement.name || null,
+                sourceLine: field ? field.sourceLine : null,
                 sourceSymbolId: room.symbolId,
                 sourceCharacterId: placement.characterId,
                 depth: placement.depth
             };
 
-            const displayName = String(field.props.displayName ?? '').trim();
+            // Only a named cue has authored props; an unnamed one carries none.
+            const props = field ? field.props : {};
+            const displayName = String(props.displayName ?? '').trim();
             if (displayName) {
                 enemy.displayName = displayName;
             }
             if (boss) {
                 enemy.roomBoss = true;
                 enemy.isRoomBoss = true;
-                enemy.displayName = enemy.displayName || field.type;
+                enemy.displayName = enemy.displayName || type;
                 enemy.roomBossName = enemy.displayName;
             }
 
@@ -504,7 +600,7 @@ function buildRegistry() {
                 'sayOnSpawn',
                 'sleepAnim'
             ]) {
-                const value = String(field.props[key] ?? '').trim();
+                const value = String(props[key] ?? '').trim();
                 if (value) {
                     enemy[key] = value;
                 }
@@ -533,7 +629,9 @@ function buildRegistry() {
 }
 
 function validateRegistry(registry) {
-    const expectedCount = 5;
+    // 34 hostiles plus the room-3 boss. This was 5 for as long as enemies were discovered
+    // from the rooms' declared fields, which only see a cue the author bothered to name.
+    const expectedCount = 35;
     if (registry.enemies.length !== expectedCount) {
         throw new Error(`Expected ${expectedCount} enemies, found ${registry.enemies.length}`);
     }

@@ -1033,6 +1033,111 @@ function testEveryTransitionMarksTheBodyStaleEvenWithoutARoomChange(): void {
     );
 }
 
+/**
+ * A dead enemy is dead for the whole party, and stays that way.
+ *
+ * Death used to be delivered by a single broadcast at the moment it happened, so a member who
+ * missed that one packet kept the body standing for the rest of the run -- the live report was
+ * two enemies alive on one screen, none on the other, and clear progress 65% against 75%. The
+ * dead set is reconciled every pass instead: anything the scope has buried that a viewer is
+ * still holding gets the destroy again, and nothing is sent once the screens agree.
+ */
+function testDeadEnemiesAreReconciledForEveryPartyMember(): void {
+    const killer = createClient('Telahair', 97001, 50);
+    const laggard = createClient('Lanorut', 97002, 22);
+    seedStandingBody(killer);
+    seedStandingBody(laggard);
+
+    const levelMap = new Map<number, any>();
+    GlobalState.levelEntities.set(SCOPE, levelMap);
+    const corpse = {
+        id: 920001,
+        name: 'GreaterDemonMaligner',
+        team: 2,
+        isPlayer: false,
+        clientSpawned: false,
+        hp: 0,
+        maxHp: 1000,
+        dead: true,
+        destroyed: true,
+        x: 14000,
+        y: 5000
+    };
+    levelMap.set(corpse.id, corpse);
+
+    // The laggard's screen is still holding the body; the killer's already let go.
+    laggard.entities.set(corpse.id, { ...corpse });
+    laggard.knownEntityIds.add(corpse.id);
+
+    const destroyed: number[] = [];
+    const deadState: number[] = [];
+    const originalSend = laggard.send;
+    laggard.send = ((packetId: number) => {
+        if (packetId === 0x0D) {
+            destroyed.push(packetId);
+        }
+        if (packetId === 0x07) {
+            deadState.push(packetId);
+        }
+    }) as never;
+    try {
+        CombatHandler.reconcileDeadHostilesForScope(SCOPE);
+        assert.equal(destroyed.length, 1, 'the corpse must be removed from the screen still holding it');
+        // The destroy alone only reaches entities that have a brain -- the client's 0x0D reader
+        // sets a flag on the brain and nothing else. The dead-state update is what lets the
+        // engine retire a brainless copy through its own path, so both must go out.
+        assert.equal(deadState.length, 1, 'the dead-state update must go out with the destroy');
+
+        // And it must genuinely retry. Gating this on the server's own bookkeeping and clearing
+        // it in the same pass made it send once per corpse and never again -- one-shot delivery
+        // wearing a reconcile's clothes, which is the failure this mechanism exists to prevent.
+        CombatHandler.reconcileDeadHostilesForScope(SCOPE);
+        assert.equal(destroyed.length, 2, 'the pair must be re-sent while the corpse may still be up');
+
+        // But it is bounded: it stops rather than becoming a permanent stream.
+        for (let tick = 0; tick < 20; tick++) {
+            CombatHandler.reconcileDeadHostilesForScope(SCOPE);
+        }
+        assert.ok(destroyed.length <= 6, `retries must stop, got ${destroyed.length}`);
+        assert.equal(destroyed.length, deadState.length, 'every destroy goes out with its dead state');
+    } finally {
+        laggard.send = originalSend;
+    }
+}
+
+/**
+ * One run, one clear percentage.
+ *
+ * The number is computed once for the whole scope, so two members showing different bars (4%
+ * against 7% in the live report, with the hostile snapshot proving both held the same five
+ * enemies in the same scope) can only mean the broadcast did not reach one of them. It read
+ * `sessionsByLevelScope`, the derived index that has dropped a live player in every other
+ * fan-out in this system.
+ */
+function testSharedProgressReachesAMemberMissingFromTheScopeIndex(): void {
+    const host = createClient('Telahair', 98001, 50);
+    const joiner = createClient('Lanorut', 98002, 22);
+
+    // The index has lost the joiner -- present but short, which is exactly how it fails.
+    GlobalState.sessionsByLevelScope.set(SCOPE, new Set([host]));
+
+    const got: Array<{ name: string; packetId: number }> = [];
+    for (const client of [host, joiner]) {
+        client.send = ((packetId: number) => {
+            got.push({ name: String(client.character?.name ?? '?'), packetId });
+        }) as never;
+    }
+
+    (LevelHandler as any).broadcastSharedDungeonQuestProgress(SCOPE, 42);
+
+    assert.ok(
+        got.some((entry) => entry.name === 'Lanorut' && entry.packetId === 0xB7),
+        'the member missing from the scope index must still be sent the run s progress'
+    );
+    assert.equal(joiner.character?.questTrackerState, 42, 'and their stored progress must match the run');
+    assert.equal(host.character?.questTrackerState, 42, 'both members are on the same number');
+}
+
 async function run(): Promise<void> {
     ensureDataLoaded();
 
@@ -1080,6 +1185,10 @@ async function run(): Promise<void> {
         testSpawnFallIsNotRejectedAsASpeedCheat();
         resetState();
         testEveryTransitionMarksTheBodyStaleEvenWithoutARoomChange();
+        resetState();
+        testDeadEnemiesAreReconciledForEveryPartyMember();
+        resetState();
+        testSharedProgressReachesAMemberMissingFromTheScopeIndex();
         console.log('player visibility regression passed');
     } finally {
         resetState();

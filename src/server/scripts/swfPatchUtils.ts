@@ -81,6 +81,12 @@ export interface AbcParseResult {
   stringLenPositions: number[];
   stringDataPositions: number[];
   multinameNames: string[];
+  // Raw multiname kind byte, parallel to multinameNames. A QName (0x07) names one
+  // absolute namespace and so resolves identically from any class; a Multiname
+  // (0x09) or MultinameL (0x0e/0x1c) resolves through a namespace *set*, which
+  // makes it valid only inside the class it was written for. Borrowing a
+  // multiname across classes is only safe for the first kind.
+  multinameKinds: number[];
   methodInfos: Array<{
     returnType: number;
     paramTypes: number[];
@@ -434,10 +440,12 @@ export function parseAbc(ctx: SwfContext): AbcParseResult {
   let multinameCount: number;
   [multinameCount, pos] = readU30(data, pos, "abc.multiname_count");
   const multinameNames = [""];
+  const multinameKinds = [0];
   for (let i = 1; i < multinameCount; i += 1) {
     requireBounds(data, pos, 1, `abc.mn[${i}].kind`);
     const kind = data[pos];
     pos += 1;
+    multinameKinds.push(kind);
     let name = "";
     let nameIdx = 0;
     if (kind === 0x07 || kind === 0x0d) {
@@ -643,6 +651,7 @@ export function parseAbc(ctx: SwfContext): AbcParseResult {
     stringLenPositions,
     stringDataPositions,
     multinameNames,
+    multinameKinds,
     methodInfos,
     instances,
     classTraits,

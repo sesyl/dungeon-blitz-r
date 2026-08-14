@@ -39,6 +39,7 @@ import {
     getSharedDungeonInitialProgress,
     getOrCreateSharedDungeonProgressState,
     getSharedDungeonProgressState,
+    getSharedDungeonProgressTotals,
     hasSharedDungeonProgressHostiles,
     recomputeSharedDungeonProgress,
     resolveSharedDungeonProgressAuthorityToken,
@@ -1283,7 +1284,27 @@ export class LevelHandler {
 
     private static broadcastSharedDungeonQuestProgress(levelScope: string, progress: number): void {
         const payload = LevelHandler.buildQuestProgressPayload(progress);
-        for (const other of GlobalState.getSessionsInLevelScope(levelScope)) {
+
+        // The percentage is a ratio, so a surprising value is only ever explained by its two
+        // terms. Reported live: a run opening at 50% on both screens, which a clean scope does
+        // not reproduce (it computes 0/35). Log the terms so the next run says which of them
+        // is wrong rather than leaving it to be guessed at.
+        const totals = getSharedDungeonProgressTotals(levelScope);
+        console.log(
+            `[DungeonProgress] ${levelScope} progress=${progress}% ` +
+            `defeated=${totals.defeated}/${totals.total}`
+        );
+        // Live sessions, not `sessionsByLevelScope`.
+        //
+        // The progress number is computed once for the whole run, so the only way two members
+        // can show different percentages is this broadcast not reaching one of them -- and the
+        // derived scope index has dropped a live player in every other fan-out in this system
+        // (visibility, enemy death, enemy destroy). The live report was 4% against 7% with the
+        // hostile snapshot proving both members held the same five enemies in the same scope,
+        // which leaves only delivery.
+        for (const other of Array.from(GlobalState.sessionsByToken.values()).filter(
+            (session) => getClientLevelScope(session) === levelScope
+        )) {
             if (!other.playerSpawned) {
                 continue;
             }
