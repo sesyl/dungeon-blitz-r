@@ -27,3 +27,12 @@ Do all work in a git worktree on a new branch — never work directly on the sha
      - `git merge --squash <branch> && git commit`
    - Push the release branch: `git push origin release/2026-08-20`
    - Clean up: remove the worktree(s) (`git worktree remove <path> --force` if needed) and delete the temporary branch (`git branch -d <branch>`).
+
+## Branch Cleanup
+
+- Keep the local checkout tidy: once a branch's work has been merged on the origin and its upstream remote branch no longer exists, delete the local branch.
+- Detect merged branches by pruning stale remote-tracking refs:
+  - `git fetch origin --prune`
+  - `git branch -vv` shows the upstream as `[gone]` once the remote branch is deleted.
+- Delete with `git branch -d <branch>`. If the merge landed as a squash (so `-d` refuses because the tip is not an ancestor), verify the upstream is gone and use `git branch -D <branch>`.
+- Never delete a branch whose remote counterpart still exists on the origin unless the user explicitly asks.
