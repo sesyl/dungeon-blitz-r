@@ -5097,17 +5097,6 @@ export class LevelHandler {
 
     static spawnLevelNpcs(client: Client, levelName: string): void {
         EntityHandler.sendInitialLevelEntities(client, levelName);
-
-        // Recompute and re-broadcast once the hostiles are actually in the map.
-        //
-        // Whatever was sent before this point was measured against a scope that had not been
-        // seeded yet, so it could only be stale -- and since each member reaches that moment
-        // separately, the two of them settled on different numbers. Refreshing here gives the
-        // whole scope one value computed from the roster that now exists.
-        const levelScope = getClientLevelScope(client);
-        if (levelScope && usesSharedDungeonProgress(levelName)) {
-            LevelHandler.refreshSharedDungeonQuestProgress(levelScope);
-        }
     }
 
     // 0x2D: Open Door

@@ -320,25 +320,14 @@ export function getSharedDungeonProgressTotals(
     // `dead` set -- that is what every reconcile in EntityHandler/CombatHandler iterates --
     // so pruning to the map cannot forget a defeat that still counts.
     //
-    // An unseeded scope measures nothing, and must not answer with the last run's numbers.
-    //
-    // The progress sync runs from the level-entry sequence BEFORE sendInitialLevelEntities
-    // has put the hostiles in the map, so it asks at a moment when the level map is still
-    // empty. Reporting the retained sets there is what made a run open at a stale percentage
-    // -- and because the two members reach that moment separately, each was answered from a
-    // different stale snapshot. That is the 75% / 50% split: one shared broadcast cannot
-    // produce two numbers, but two differently-timed ones can.
-    //
-    // Returned without touching the sets, so a transiently empty map cannot erase real
-    // defeats either.
-    if (present.size === 0) {
-        return { total: 0, defeated: 0 };
-    }
-
-    for (const entityId of Array.from(tracked)) {
-        if (!present.has(entityId)) {
-            tracked.delete(entityId);
-            defeated.delete(entityId);
+    // Only prune once the map has something to prune against; an empty map means the scope
+    // has not been seeded yet, not that every enemy vanished.
+    if (present.size > 0) {
+        for (const entityId of Array.from(tracked)) {
+            if (!present.has(entityId)) {
+                tracked.delete(entityId);
+                defeated.delete(entityId);
+            }
         }
     }
 
