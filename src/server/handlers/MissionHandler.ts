@@ -1024,7 +1024,17 @@ export class MissionHandler {
             return;
         }
 
-        MissionHandler.sendQuestProgress(client, Math.max(0, Number(client.character.questTrackerState ?? 0)));
+        // In a shared-progress dungeon the tracker belongs to the run, not to the character.
+        //
+        // This ran from the level-entry sequence BEFORE the hostiles were seeded and before
+        // syncSharedDungeonQuestProgressState, so `questTrackerState` still held whatever the
+        // player carried in from the zone they came from -- and since the two members came
+        // from different towns, each was sent a different number. That is the East Wing
+        // opening at 75% for one member and 50% for the other: not one shared value seen
+        // twice, but the only per-character emitter of this packet pushing a value that has
+        // nothing to do with this dungeon. The shared broadcast was correct all along; it was
+        // just not the last word.
+        MissionHandler.sendQuestProgress(client, MissionHandler.resolveEntryQuestProgress(client));
         const clearTheBandits = MissionHandler.asMissionEntry(
             MissionHandler.getMissionStateMap(client.character)[String(MissionID.ClearTheBandits)]
         );
@@ -3512,6 +3522,25 @@ export class MissionHandler {
         return MissionHandler.missionStartsReadyToTurnIn(missionDef)
             ? MissionHandler.MISSION_READY_TO_TURN_IN
             : MissionHandler.MISSION_IN_PROGRESS;
+    }
+
+    /**
+     * The tracker value to open with: the run's shared progress inside a shared-progress
+     * dungeon, and the character's own otherwise.
+     */
+    private static resolveEntryQuestProgress(client: Client): number {
+        const carried = Math.max(0, Number(client.character?.questTrackerState ?? 0));
+        if (!usesSharedDungeonProgress(client.currentLevel)) {
+            return carried;
+        }
+
+        const levelScope = getClientLevelScope(client);
+        const sharedState = levelScope ? getOrCreateSharedDungeonProgressState(levelScope) : null;
+        const shared = Math.max(0, Math.round(Number(sharedState?.progress ?? 0)));
+        if (client.character) {
+            client.character.questTrackerState = shared;
+        }
+        return shared;
     }
 
     /** Mirrors LevelHandler.traceQuestProgressSend; kept local to avoid a circular import. */

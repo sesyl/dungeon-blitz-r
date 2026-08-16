@@ -14,6 +14,7 @@ import {
 import { DungeonSpawnLoader, DungeonSpawnConfig } from '../data/DungeonSpawnLoader';
 import { NpcLoader } from '../data/NpcLoader';
 import { CombatHandler } from '../handlers/CombatHandler';
+import { MissionHandler } from '../handlers/MissionHandler';
 import { EntityHandler } from '../handlers/EntityHandler';
 import { BitBuffer } from '../network/protocol/bitBuffer';
 import { BitReader } from '../network/protocol/bitReader';
@@ -329,6 +330,43 @@ function testMissingDrawnHostilesAreRedrawn(): void {
     assert.equal(zeus.entities.has(Number(boss.id)), false, 'the reconcile must not draw the room boss');
 }
 
+// The mission sync is the only per-character emitter of 0xB7, and it ran at level entry
+// before the shared progress existed -- so it pushed whatever each player carried in from the
+// town they came from. Two members arriving from two towns got two numbers: the East Wing
+// opening at 75% for one and 50% for the other, which no shared broadcast can produce.
+function testEntryDoesNotPushCarriedQuestProgress(): void {
+    const leader = createFakeClient('Zeus', 'east-wing-carried', 14011, 1);
+    const joiner = createFakeClient('Telahair', 'east-wing-carried', 14012, 1);
+    // Whatever each was showing in their own town.
+    (leader.character as any).questTrackerState = 75;
+    (joiner.character as any).questTrackerState = 50;
+
+    attachPlayer(leader);
+    attachPlayer(joiner);
+    GlobalState.sessionsByToken.set(leader.token, leader as never);
+    GlobalState.sessionsByToken.set(joiner.token, joiner as never);
+
+    MissionHandler.syncMissionStateToClient(leader as never);
+    MissionHandler.syncMissionStateToClient(joiner as never);
+
+    const lastPercent = (client: FakeClient): number => {
+        const packets = client.sentPackets.filter((packet) => packet.id === 0xB7);
+        assert.ok(packets.length > 0, 'entry should send a quest progress packet');
+        return new BitReader(packets[packets.length - 1].payload).readMethod4();
+    };
+
+    assert.equal(lastPercent(leader), 0, 'entry must not push the value carried in from a town');
+    assert.equal(lastPercent(joiner), 0, 'entry must not push the value carried in from a town');
+    assert.equal(
+        Number((leader.character as any).questTrackerState),
+        Number((joiner.character as any).questTrackerState),
+        'both members of one run must open on the same tracker value'
+    );
+
+    GlobalState.sessionsByToken.delete(leader.token);
+    GlobalState.sessionsByToken.delete(joiner.token);
+}
+
 function testInitialCanonicalSendsVisibleServerHostiles(): void {
     const zeus = createFakeClient('Zeus', 'east-wing-initial', 13933, 1);
     attachPlayer(zeus);
@@ -430,6 +468,7 @@ async function main(): Promise<void> {
         testInitialCanonicalSendsVisibleServerHostiles();
     testMissingDrawnHostilesAreRedrawn();
     testStaleTrackedHostilesDoNotInflateProgress();
+    testEntryDoesNotPushCarriedQuestProgress();
 
         resetRuntime();
         await testProxyAttachKillProgressAndLateJoiner();
