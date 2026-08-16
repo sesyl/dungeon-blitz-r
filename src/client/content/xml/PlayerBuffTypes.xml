@@ -5844,7 +5844,7 @@
 			<DoTDamage>1</DoTDamage>
 			<DoTTickLength>1000</DoTTickLength>
 			<Effect>Poisoned</Effect>
-			<StackCount>16</StackCount>
+			<StackCount>8</StackCount>
 			<BuffLoc>Head</BuffLoc>
 			<BuffIcon>a_StatusIcon_Poisoned</BuffIcon>
 		</BuffType>
