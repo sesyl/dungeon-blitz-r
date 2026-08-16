@@ -12,7 +12,6 @@ import {
   parseAbc,
   parseSwf,
   PatchError,
-  readU30,
   u30OperandName,
   writeSwf,
   writeU30,
@@ -95,6 +94,22 @@ const CLAMP_BYTES = Buffer.from([
 // Byte offset of the clamp's convert_u within CLAMP_BYTES, derived so the two
 // cannot drift apart.
 const CONVERT_U_REL = CLAMP_BYTES.indexOf(0x74);
+
+// The clamp disassembled once, so the opcode checks cannot drift from the bytes.
+const CLAMP_INSTS = disassemble(CLAMP_BYTES, "forge-countdown-clamp");
+
+// Operand-stack effects of each clamp opcode: [popped, pushed].
+const STACK_EFFECTS = new Map<number, [number, number]>([
+  [0xa1, [2, 1]], // subtract
+  [0x73, [1, 1]], // convert_i
+  [0x2a, [0, 1]], // dup
+  [0x24, [0, 1]], // pushbyte
+  [0xb0, [2, 1]], // greaterequals
+  [0x11, [1, 0]], // iftrue
+  [0x29, [1, 0]], // pop
+  [0x74, [1, 1]], // convert_u
+  [0xd6, [1, 0]], // setlocal2
+]);
 
 function parseArgs(argv: string[]): { swfPath: string; verify: boolean } {
   let swfPath = DEFAULT_SWF;
@@ -248,49 +263,40 @@ function locateSite(
 
 /**
  * Simulates the emitted clamp on the operand stack the way the player's
- * verifier will, and checks the clamp's iftrue lands on the final convert_u
- * with a consistent depth. The block starts with the subtract operands
- * ([endtime, mServerGameTime], depth 2), must peak at <= 3, and must leave the
- * stack at depth 0 (setlocal2 consumes the result).
+ * verifier will: the block starts with the subtract operands
+ * ([endtime, mServerGameTime], depth 2), peaks at <= 3, its iftrue lands on the
+ * final convert_u at depth 1, and it leaves the stack at depth 0 (setlocal2
+ * consumes the result). FFDec happily decompiles a block that fails this; the
+ * player throws VerifyError.
  */
 function verifyClampStack(insts: Instruction[], tailIndex: number): void {
-  const ops: Array<{ opcode: number; pop: number; push: number; name: string }> = [
-    { opcode: 0xa1, pop: 2, push: 1, name: "subtract" },
-    { opcode: 0x73, pop: 1, push: 1, name: "convert_i" },
-    { opcode: 0x2a, pop: 0, push: 1, name: "dup" },
-    { opcode: 0x24, pop: 0, push: 1, name: "pushbyte" },
-    { opcode: 0xb0, pop: 2, push: 1, name: "greaterequals" },
-    { opcode: 0x11, pop: 1, push: 0, name: "iftrue" },
-    { opcode: 0x29, pop: 1, push: 0, name: "pop" },
-    { opcode: 0x24, pop: 0, push: 1, name: "pushbyte" },
-    { opcode: 0x74, pop: 1, push: 1, name: "convert_u" },
-    { opcode: 0xd6, pop: 1, push: 0, name: "setlocal2" },
-  ];
-
-  const block = insts.slice(tailIndex, tailIndex + ops.length);
-  for (let i = 0; i < ops.length; i += 1) {
-    if (block[i].opcode !== ops[i].opcode) {
+  const block = insts.slice(tailIndex, tailIndex + CLAMP_INSTS.length);
+  if (block.length !== CLAMP_INSTS.length) {
+    throw new PatchError("Clamp block is shorter than expected.");
+  }
+  for (let i = 0; i < CLAMP_INSTS.length; i += 1) {
+    if (block[i].opcode !== CLAMP_INSTS[i].opcode) {
       throw new PatchError(
-        `Clamp block opcode mismatch at index ${i}: expected 0x${ops[i].opcode.toString(16)}, got 0x${block[i].opcode.toString(16)}.`,
+        `Clamp block opcode mismatch at index ${i}: expected 0x${CLAMP_INSTS[i].opcode.toString(16)}, got 0x${block[i].opcode.toString(16)}.`,
       );
     }
   }
 
   let depth = 2; // endtime, mServerGameTime
   let maxDepth = depth;
-  for (let i = 0; i < ops.length; i += 1) {
-    const op = ops[i];
-    depth -= op.pop;
+  for (let i = 0; i < CLAMP_INSTS.length; i += 1) {
+    const [pop, push] = STACK_EFFECTS.get(CLAMP_INSTS[i].opcode)!;
+    depth -= pop;
     if (depth < 0) {
-      throw new PatchError(`Clamp block underflows the operand stack at ${op.name}.`);
+      throw new PatchError(`Clamp block underflows the operand stack at index ${i}.`);
     }
-    depth += op.push;
+    depth += push;
     maxDepth = Math.max(maxDepth, depth);
-    if (op.opcode === 0x11) {
-      // iftrue +3 targets the final convert_u. Fall-through depth after the pop
-      // is 1; the branch arrives with the same 1.
+    if (CLAMP_INSTS[i].opcode === 0x11) {
+      // iftrue targets the final convert_u; the branch arrives at the same
+      // depth as the fall-through (1).
       const target = block[i].offset + block[i].size + block[i].operands[0][1];
-      const convertU = block[ops.length - 2];
+      const convertU = block[CLAMP_INSTS.length - 2];
       if (target !== convertU.offset) {
         throw new PatchError(`Clamp iftrue lands on ${target}, expected the convert_u at ${convertU.offset}.`);
       }
@@ -327,20 +333,6 @@ function buildPatchedCode(site: ForgeSite, code: Buffer): Buffer {
   const { tailIndex, branchIndex, instructions, newConvertUOffset } = site;
   const tailStart = instructions[tailIndex].offset;
   const tailEnd = tailStart + ORIGINAL_TAIL.length;
-
-  for (const [index, inst] of instructions.entries()) {
-    if (!isBranchOpcode(inst.opcode) || index === branchIndex) {
-      continue;
-    }
-    if (inst.offset >= tailStart && inst.offset < tailEnd) {
-      continue; // replaced away
-    }
-    const target = inst.offset + inst.size + inst.operands[0][1];
-    if (target >= tailStart && target < tailEnd) {
-      throw new PatchError(`A branch at ${inst.offset} targets the replaced countdown tail (${target}); refusing to patch.`);
-    }
-  }
-
   const delta = CLAMP_BYTES.length - ORIGINAL_TAIL.length;
   const newCode = Buffer.concat([
     code.subarray(0, tailStart),
@@ -353,15 +345,14 @@ function buildPatchedCode(site: ForgeSite, code: Buffer): Buffer {
       continue;
     }
     if (inst.offset >= tailStart && inst.offset < tailEnd) {
-      continue;
-    }
-    const newPos = inst.offset >= tailEnd ? inst.offset + delta : inst.offset;
-    if (index === branchIndex) {
-      writeS24At(newCode, newPos + 1, newConvertUOffset - (newPos + inst.size));
-      continue;
+      continue; // replaced away
     }
     const target = inst.offset + inst.size + inst.operands[0][1];
-    const newTarget = target >= tailEnd ? target + delta : target;
+    if (index !== branchIndex && target >= tailStart && target < tailEnd) {
+      throw new PatchError(`A branch at ${inst.offset} targets the replaced countdown tail (${target}); refusing to patch.`);
+    }
+    const newPos = inst.offset >= tailEnd ? inst.offset + delta : inst.offset;
+    const newTarget = index === branchIndex ? newConvertUOffset : target >= tailEnd ? target + delta : target;
     writeS24At(newCode, newPos + 1, newTarget - (newPos + inst.size));
   }
 
@@ -384,12 +375,6 @@ function patchSwf(swfPath: string, verify: boolean): void {
 
   if (verify) {
     throw new PatchError("Forge countdown uint-wrap patch is missing; run without --verify to apply it.");
-  }
-
-  // The clamp peaks at depth 3; the original method must allow at least that.
-  const [maxStack] = readU30(ctx.body, methodBody.maxStackPos, "class_75.OnTickScreen.max_stack");
-  if (maxStack < 3) {
-    throw new PatchError(`class_75.OnTickScreen max_stack is ${maxStack}; the clamp needs 3.`);
   }
 
   const newCode = buildPatchedCode(site, code);
