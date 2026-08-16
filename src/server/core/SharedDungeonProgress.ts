@@ -292,11 +292,13 @@ export function getSharedDungeonProgressTotals(
     const defeated = state.defeatedHostileIds ?? new Set<number>();
     const levelMap = GlobalState.levelEntities.get(scopeKey);
 
+    const present = new Set<number>();
     for (const [entityId, entity] of levelMap?.entries() ?? []) {
         if (!isSharedDungeonTrackedHostile(entity)) {
             continue;
         }
 
+        present.add(entityId);
         tracked.add(entityId);
         if (isEntityDefeated(entity)) {
             defeated.add(entityId);
@@ -304,6 +306,33 @@ export function getSharedDungeonProgressTotals(
             defeated.delete(entityId);
         }
     }
+
+    // Prune ids the run no longer has.
+    //
+    // These two sets only ever grew. Nothing removed an id once tracked, so a scope that was
+    // seeded more than once -- a re-entry, a fresh-run reset, a roster that changed size --
+    // kept counting hostiles that no longer exist, with the old ones still marked defeated.
+    // The ratio then describes a run that is not being played: a dungeon opening at 50% with
+    // nothing killed is half the tracked ids being stale corpses, and 75% is three quarters.
+    // Progress has to describe the enemies that are actually in the level right now.
+    //
+    // Safe against a real kill: a killed canonical hostile stays in the level map with
+    // `dead` set -- that is what every reconcile in EntityHandler/CombatHandler iterates --
+    // so pruning to the map cannot forget a defeat that still counts.
+    //
+    // Only prune once the map has something to prune against; an empty map means the scope
+    // has not been seeded yet, not that every enemy vanished.
+    if (present.size > 0) {
+        for (const entityId of Array.from(tracked)) {
+            if (!present.has(entityId)) {
+                tracked.delete(entityId);
+                defeated.delete(entityId);
+            }
+        }
+    }
+
+    state.trackedHostileIds = tracked;
+    state.defeatedHostileIds = defeated;
 
     let defeatedCount = 0;
     for (const entityId of defeated.values()) {
@@ -327,26 +356,36 @@ export function recomputeSharedDungeonProgress(levelScope: string | null | undef
 
     const totals = getSharedDungeonProgressTotals(levelScope);
     const levelName = getScopeLevelName(levelScope);
+    let branch = '';
     if (usesRequiredForClearProgress(scopeKey, levelName)) {
+        branch = 'requiredForClear';
         state.progress = totals.total > 0
             ? clampProgress(Math.floor((totals.defeated / totals.total) * 100))
             : 0;
-        refreshSharedDungeonLiveStats(state, scopeKey);
-        return state;
-    }
-
-    if (usesSharedDungeonProgress(levelName)) {
+    } else if (usesSharedDungeonProgress(levelName)) {
         const initialProgress = getSharedDungeonInitialProgress(levelName);
+        branch = `shared(initial=${initialProgress})`;
         state.progress = totals.total > 0
             ? clampProgress(initialProgress + ((totals.defeated / totals.total) * (100 - initialProgress)))
             : initialProgress;
-        refreshSharedDungeonLiveStats(state, scopeKey);
-        return state;
+    } else {
+        branch = 'ratio';
+        state.progress = totals.total > 0
+            ? clampProgress((totals.defeated / totals.total) * 100)
+            : 0;
     }
 
-    state.progress = totals.total > 0
-        ? clampProgress((totals.defeated / totals.total) * 100)
-        : 0;
+    // A run opening at 50% with nothing killed is reported live and none of the three branches
+    // above can produce it from 0/35 -- every one of them yields 0. Log the moment a non-zero
+    // percentage is written with no defeats, with the branch and its inputs, so the next run
+    // names the writer instead of leaving it to be reasoned about from the source.
+    if (state.progress > 0 && totals.defeated === 0) {
+        console.log(
+            `[DungeonProgress] SUSPECT ${scopeKey} level=${levelName} branch=${branch} ` +
+            `progress=${state.progress} defeated=${totals.defeated}/${totals.total}`
+        );
+    }
+
     refreshSharedDungeonLiveStats(state, scopeKey);
     return state;
 }

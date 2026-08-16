@@ -6,6 +6,7 @@ import { LevelConfig } from '../core/LevelConfig';
 import { Entity, EntityState, EntityTeam } from '../core/Entity';
 import { getLevelScopeKey } from '../core/LevelScope';
 import {
+    getOrCreateSharedDungeonProgressState,
     getSharedDungeonProgressTotals,
     recomputeSharedDungeonProgress,
     usesSharedDungeonProgress
@@ -265,6 +266,69 @@ function testRegistryLoad(): void {
     assert.equal(usesSharedDungeonProgress('JC_Mini2'), true, 'generated required-for-clear dungeon should use shared progress');
 }
 
+// Drawing them once is not enough. sendInitialLevelEntities fires once per level entry, so a
+// hostile a client misses in that burst is gone for the rest of the run -- reported live as
+// "some enemies are missing", and as one player seeing an enemy the other does not.
+//
+// The retry must not be gated on the server's own bookkeeping: the send path fills
+// viewer.entities itself, so the server always believes it drew the entity. That is why this
+// asserts a re-send for a hostile the viewer is still recorded as holding.
+// A dungeon must open at 0%. The tracked/defeated sets only ever grew, so a scope seeded more
+// than once kept counting hostiles that no longer exist with the old ones still marked defeated
+// -- reported live as a run opening at 50% with nothing killed, then diverging to 75%.
+function testStaleTrackedHostilesDoNotInflateProgress(): void {
+    const zeus = createFakeClient('Zeus', 'east-wing-stale', 13991, 1);
+    attachPlayer(zeus);
+    GlobalState.sessionsByToken.set(zeus.token, zeus as never);
+    EntityHandler.sendInitialLevelEntities(zeus as never, zeus.currentLevel);
+    const scope = getLevelScopeKey(zeus.currentLevel, zeus.levelInstanceId);
+
+    // Seed the state the way a previous run left it: ids that are gone, all "defeated".
+    const state = getOrCreateSharedDungeonProgressState(scope);
+    assert.ok(state, 'shared progress state should exist');
+    for (let index = 0; index < EAST_WING_ENEMY_COUNT; index += 1) {
+        const staleId = 990_000 + index;
+        state.trackedHostileIds?.add(staleId);
+        state.defeatedHostileIds?.add(staleId);
+    }
+
+    const totals = getSharedDungeonProgressTotals(scope);
+    assert.equal(totals.total, EAST_WING_ENEMY_COUNT, 'only the hostiles this run actually has should be tracked');
+    assert.equal(totals.defeated, 0, 'stale ids from an earlier seeding must not count as defeats');
+    assert.equal(recomputeSharedDungeonProgress(scope)?.progress, 0, 'a fresh East Wing run must open at 0%');
+}
+
+function testMissingDrawnHostilesAreRedrawn(): void {
+    const zeus = createFakeClient('Zeus', 'east-wing-redraw', 13977, 1);
+    attachPlayer(zeus);
+    GlobalState.sessionsByToken.set(zeus.token, zeus as never);
+    EntityHandler.sendInitialLevelEntities(zeus as never, zeus.currentLevel);
+    const scope = getLevelScopeKey(zeus.currentLevel, zeus.levelInstanceId);
+
+    const drawn = getHostiles(scope).filter(
+        (hostile) => !EntityHandler.isCanonicalRoomBossEntity(hostile)
+    );
+    assert.ok(drawn.length > 0, 'expected the server to draw non-boss hostiles');
+
+    zeus.sentPackets.length = 0;
+    EntityHandler.reconcileDrawnHostilesForScope(scope, [zeus as never]);
+    const redrawn = zeus.sentPackets.filter((packet) => packet.id === 0x0F).length;
+    assert.equal(redrawn, drawn.length, 'every drawn hostile should be re-sent while retries remain');
+
+    // Bounded: it must stop rather than become a stream.
+    for (let pass = 0; pass < 8; pass += 1) {
+        EntityHandler.reconcileDrawnHostilesForScope(scope, [zeus as never]);
+    }
+    zeus.sentPackets.length = 0;
+    EntityHandler.reconcileDrawnHostilesForScope(scope, [zeus as never]);
+    assert.equal(zeus.sentPackets.length, 0, 'the redraw must stop once its retry budget is spent');
+
+    // The boss stays client-spawned, so the reconcile must never draw it.
+    const boss = getHostiles(scope).find((hostile) => EntityHandler.isCanonicalRoomBossEntity(hostile));
+    assert.ok(boss, 'the East Wing roster should contain a room boss');
+    assert.equal(zeus.entities.has(Number(boss.id)), false, 'the reconcile must not draw the room boss');
+}
+
 function testInitialCanonicalSendsVisibleServerHostiles(): void {
     const zeus = createFakeClient('Zeus', 'east-wing-initial', 13933, 1);
     attachPlayer(zeus);
@@ -364,6 +428,8 @@ async function main(): Promise<void> {
 
         resetRuntime();
         testInitialCanonicalSendsVisibleServerHostiles();
+    testMissingDrawnHostilesAreRedrawn();
+    testStaleTrackedHostilesDoNotInflateProgress();
 
         resetRuntime();
         await testProxyAttachKillProgressAndLateJoiner();

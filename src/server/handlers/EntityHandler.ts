@@ -113,6 +113,9 @@ export class EntityHandler {
         105880, 112460, 119400, 126760, 134560
     ];
     private static serverAuthoritySeededScopes = new Set<string>();
+    // Bounded redraw attempts per `viewerToken:canonicalId`, for levels the server draws.
+    private static drawnHostileRetries = new Map<string, number>();
+    private static readonly DRAWN_HOSTILE_RETRY_LIMIT = 4;
     private static serverAuthorityDestroyedIdsByScope = new Map<string, Set<number>>();
     private static serverAuthorityDestroyedFingerprintsByScope = new Map<string, Set<string>>();
     private static craftTownTutorialHelperIdsCache: Set<number> | null = null;
@@ -1656,6 +1659,9 @@ export class EntityHandler {
         if (!levelScope || EntityHandler.hasOtherActiveSessionInScope(client, levelScope)) {
             return;
         }
+
+        // A fresh run redraws from scratch, so it must not inherit a spent retry budget.
+        EntityHandler.forgetDrawnHostileRetries(levelScope);
 
         if (
             String(client.levelInstanceId ?? '').trim() &&
@@ -5262,6 +5268,87 @@ export class EntityHandler {
         }
     }
 
+    /**
+     * Re-send the canonical hostiles of a server-drawn level to everyone in the scope.
+     *
+     * `sendInitialLevelEntities` is the only place these are sent and it fires once per level
+     * entry, so any of the 34 a client misses in that burst is gone for the rest of the run --
+     * reported live as "some enemies are missing", and as one player seeing an enemy the other
+     * does not.
+     *
+     * Retries on a counter, deliberately NOT on `viewer.entities`. The send path fills that map
+     * itself, so the server always believes it drew the entity: gating on it means the one case
+     * this exists for -- a client that did not act on the spawn -- is the exact case it would
+     * never retry. That is the trap `reconcileDeadHostilesForScope` already had to learn: if
+     * what makes it fire a second time is state the send itself sets, it is not a reconcile.
+     *
+     * Re-sending is safe. The 0x0F reader is idempotent by design: it tears down and rebuilds
+     * any entity already holding the id. A redundant spawn costs one redraw; a missing one
+     * costs the enemy for the whole run. The counter stops it ever becoming a stream.
+     */
+    static reconcileDrawnHostilesForScope(levelScope: string, sessions: Client[]): void {
+        const levelName = getScopeLevelName(levelScope);
+        if (!EntityHandler.usesCanonicalVisibleServerAuthorityHostiles(levelName)) {
+            return;
+        }
+
+        const levelMap = GlobalState.levelEntities.get(levelScope);
+        if (!levelMap) {
+            return;
+        }
+
+        for (const [entityId, entityProps] of levelMap.entries()) {
+            if (entityProps?.isPlayer) continue;
+            if (entityProps?.clientSpawned) continue;
+            if ((entityProps as any)?.serverOnlyObjective) continue;
+            if (EntityHandler.isEntityDead(entityProps)) continue;
+            // The boss stays client-spawned, so the server must never draw it.
+            if (EntityHandler.isCanonicalRoomBossEntity(entityProps)) continue;
+            if (!EntityHandler.isServerAuthorityHostileEntity(levelName, entityProps)) continue;
+
+            for (const viewer of sessions) {
+                // Keyed by the viewer's CURRENT ROOM, not just the viewer.
+                //
+                // A client accepts the spawns for the room it is standing in and drops the
+                // rest, so one budget per run is spent in the first few seconds while the
+                // player is still in room 1 -- and rooms 2..4 are then never sent again. That
+                // is "the enemies are missing" for both players at once, in exactly the rooms
+                // they had not reached yet. A room change earns a fresh budget, so walking
+                // into a room draws its enemies.
+                const retryKey = `${viewer.token}:${Math.round(Number(viewer.currentRoomId ?? -1))}:${entityId}`;
+                const attempts = EntityHandler.drawnHostileRetries.get(retryKey) ?? 0;
+                if (attempts >= EntityHandler.DRAWN_HOSTILE_RETRY_LIMIT) {
+                    continue;
+                }
+                EntityHandler.drawnHostileRetries.set(retryKey, attempts + 1);
+
+                viewer.entities.set(entityId, { ...entityProps });
+                noteDungeonRunEntitySeen(viewer, entityId, entityProps);
+                EntityHandler.sendEntity(viewer, entityProps);
+                console.log(
+                    `[HostileRedraw] ${levelName} canonical=${entityId} ` +
+                    `name=${String(entityProps?.name ?? '?')} -> ` +
+                    `${String(viewer.character?.name ?? '?')} ` +
+                    `attempt=${attempts + 1}/${EntityHandler.DRAWN_HOSTILE_RETRY_LIMIT}`
+                );
+            }
+        }
+    }
+
+    /** Lets a fresh run redraw from scratch instead of inheriting a spent retry budget. */
+    static forgetDrawnHostileRetries(levelScope: string): void {
+        const levelMap = GlobalState.levelEntities.get(levelScope);
+        if (!levelMap) {
+            return;
+        }
+        for (const key of Array.from(EntityHandler.drawnHostileRetries.keys())) {
+            const entityId = Number(key.slice(key.lastIndexOf(':') + 1));
+            if (levelMap.has(entityId)) {
+                EntityHandler.drawnHostileRetries.delete(key);
+            }
+        }
+    }
+
     static startPlayerVisibilitySweep(): void {
         if (EntityHandler.playerVisibilitySweep) {
             return;
@@ -5288,6 +5375,10 @@ export class EntityHandler {
                 // party split -- the one failure none of the delivery fixes can touch. Gating
                 // this behind the gate hid exactly the case it exists to show.
                 EntityHandler.reportHostileSnapshotAgreement(levelScope);
+
+                // Drawing them once is not enough; see reconcileDrawnHostilesForScope. Runs
+                // before the two-member gate: a solo run drops spawns exactly the same way.
+                EntityHandler.reconcileDrawnHostilesForScope(levelScope, sessions);
                 if (sessions.length < 2) {
                     continue;
                 }

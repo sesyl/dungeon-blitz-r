@@ -1487,7 +1487,20 @@ export class LevelHandler {
 
         client.currentRoomId = 0;
         client.startedRoomEvents.clear();
-        client.character.questTrackerState = getSharedDungeonInitialProgress(client.currentLevel);
+        const initialProgress = getSharedDungeonInitialProgress(client.currentLevel);
+        client.character.questTrackerState = initialProgress;
+
+        // Tell the client, do not just record it.
+        //
+        // This only set the field, so nothing ever reached the wire at entry and each client
+        // kept showing a percentage it had worked out for itself. That is why a run opened at
+        // 50% with nothing killed, and why the two members then diverged to 75% and 50% -- a
+        // single shared broadcast cannot produce two different numbers, so those were never
+        // the server's number at all. A shared-progress dungeon must open on the server's
+        // value, which is 0 until something dies.
+        if (client.playerSpawned) {
+            LevelHandler.sendQuestProgress(client, initialProgress);
+        }
     }
 
     static prepareDungeonQuestProgressState(client: Client): void {
