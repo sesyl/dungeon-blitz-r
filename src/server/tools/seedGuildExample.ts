@@ -23,7 +23,6 @@ import { CharacterTemplates } from '../core/CharacterTemplates';
 import { JsonAdapter } from '../database/JsonAdapter';
 import { Character, UserSaveData } from '../database/Database';
 import { hashPlaintextPasswordForClient, PasswordRecord } from '../auth/PasswordAuth';
-
 export const GUILD_NAME = 'The Minesa Studios';
 const DEFAULT_PASSWORD = 'testtest';
 const NEODEVILS_NAME = 'Neodevils';
