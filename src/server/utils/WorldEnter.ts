@@ -1000,8 +1000,12 @@ export class WorldEnter {
 
             for (const rawMember of onlineMembers) {
                 const member = WorldEnter.asRecord(rawMember);
+                // Saves written before the online flag existed only ever stored online
+                // members, so a missing flag means the member was online.
+                const online = typeof member.online === 'boolean' ? member.online : true;
+                bb.writeMethod11(online ? 1 : 0, 1);
                 bb.writeMethod13(String(member.name ?? ''));
-                bb.writeMethod6(Number(member.classID ?? 0), 2);
+                bb.writeMethod6(Number(member.classId ?? 0), 2);
                 bb.writeMethod6(Number(member.level ?? 1), 6);
                 bb.writeMethod6(Number(member.rank ?? 0), 3);
             }
