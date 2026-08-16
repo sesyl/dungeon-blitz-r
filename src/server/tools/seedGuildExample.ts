@@ -23,12 +23,6 @@ import { CharacterTemplates } from '../core/CharacterTemplates';
 import { JsonAdapter } from '../database/JsonAdapter';
 import { Character, UserSaveData } from '../database/Database';
 import { hashPlaintextPasswordForClient, PasswordRecord } from '../auth/PasswordAuth';
-import {
-    buildHomeStatueSnapshot,
-    readHomeStatues,
-    writeHomeStatues
-} from '../core/HomeStatues';
-
 export const GUILD_NAME = 'The Minesa Studios';
 const DEFAULT_PASSWORD = 'testtest';
 const NEODEVILS_NAME = 'Neodevils';
@@ -159,25 +153,6 @@ async function main(): Promise<void> {
     );
     await db.updateAccountPassword(TELAHAIR_EMAIL, passwordRecord);
 
-    // Place a Telahair statue in Neodevils' keep garden so the guild-name feature
-    // (#718) can be seen at Home without a second logged-in client: her statue is a
-    // player-shaped entity whose guild block renders "<The Minesa Studios>" under
-    // her nameplate and in her inspect window.
-    const neodevilsCharacters = await db.loadCharacters(neodevils.userId);
-    const telahairStatue = buildHomeStatueSnapshot(telahair.character);
-    if (!telahairStatue) {
-        throw new Error(`Could not build a statue snapshot from ${TELAHAIR_NAME}.`);
-    }
-    const statueClass = String(telahairStatue.characterClass ?? '').toLowerCase();
-    if (!['paladin', 'rogue', 'mage'].includes(statueClass)) {
-        throw new Error(`${TELAHAIR_NAME} has no usable statue class.`);
-    }
-    const book = readHomeStatues(neodevilsCharacters[0] ?? neodevils.character);
-    book[telahairStatue.characterClass] = telahairStatue;
-    writeHomeStatues(neodevilsCharacters, book);
-    await db.saveCharacters(neodevils.userId, neodevilsCharacters);
-    console.log(`[seed-guild-example] Added ${TELAHAIR_NAME}'s statue (${telahairStatue.characterClass}) to ${NEODEVILS_NAME}'s keep garden.`);
-
     const describe = (entry: { userId: number; character: Character; created: boolean }): string =>
         `${String(entry.character.name).padEnd(10)} ${String(entry.character.class).padEnd(8)} ` +
         `level ${String(entry.character.level).padStart(2)}  user_id ${entry.userId}  ` +
@@ -189,7 +164,6 @@ async function main(): Promise<void> {
     console.log('');
     console.log(`[seed-guild-example] Login as ${neodevilsAccount.email} / ${DEFAULT_PASSWORD} to see the guild page.`);
     console.log(`[seed-guild-example] ${TELAHAIR_NAME} is offline; her roster entry should show grayed out with "Offline".`);
-    console.log(`[seed-guild-example] At Home, ${TELAHAIR_NAME}'s statue in the garden shows "<${GUILD_NAME}>" under her name and in the inspect window.`);
 }
 
 main().catch((error) => {
