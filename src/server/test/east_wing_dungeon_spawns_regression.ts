@@ -276,6 +276,31 @@ function testRegistryLoad(): void {
 // A dungeon must open at 0%. The tracked/defeated sets only ever grew, so a scope seeded more
 // than once kept counting hostiles that no longer exist with the old ones still marked defeated
 // -- reported live as a run opening at 50% with nothing killed, then diverging to 75%.
+// The entry sequence asks for progress before the hostiles are in the map. Answering that
+// from the retained sets is what opened a run at a stale percentage -- and because the two
+// members reach that moment separately, each got a different one (75% and 50% live).
+function testUnseededScopeReportsZeroProgress(): void {
+    const scope = 'JC_Mini2#east-wing-unseeded';
+    GlobalState.levelEntities.set(scope, new Map<number, any>());
+    const state = getOrCreateSharedDungeonProgressState(scope);
+    assert.ok(state, 'shared progress state should exist');
+    for (let index = 0; index < 4; index += 1) {
+        state.trackedHostileIds?.add(980_000 + index);
+    }
+    for (let index = 0; index < 3; index += 1) {
+        state.defeatedHostileIds?.add(980_000 + index);
+    }
+
+    // 3 of 4 retained ids defeated is exactly the 75% that was reported live.
+    const totals = getSharedDungeonProgressTotals(scope);
+    assert.deepEqual(totals, { total: 0, defeated: 0 }, 'an unseeded scope must measure nothing');
+    assert.equal(recomputeSharedDungeonProgress(scope)?.progress, 0, 'a dungeon must open at 0%');
+
+    // And the retained sets must survive, so a transiently empty map cannot erase real defeats.
+    assert.equal(state.trackedHostileIds?.size, 4, 'an unseeded read must not discard tracked ids');
+    GlobalState.levelEntities.delete(scope);
+}
+
 function testStaleTrackedHostilesDoNotInflateProgress(): void {
     const zeus = createFakeClient('Zeus', 'east-wing-stale', 13991, 1);
     attachPlayer(zeus);
@@ -430,6 +455,7 @@ async function main(): Promise<void> {
         testInitialCanonicalSendsVisibleServerHostiles();
     testMissingDrawnHostilesAreRedrawn();
     testStaleTrackedHostilesDoNotInflateProgress();
+    testUnseededScopeReportsZeroProgress();
 
         resetRuntime();
         await testProxyAttachKillProgressAndLateJoiner();
