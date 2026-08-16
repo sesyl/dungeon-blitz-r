@@ -55974,7 +55974,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Nature</DamageType>
 		<PowerGroup>PetFairy</PowerGroup>
-		<AddTargetBuff>PetFairyBlind</AddTargetBuff>
+		<AddTargetBuff>PetFairyBlind,PetArmorBane</AddTargetBuff>
 		<Description>Throws fairy dust that blinds all nearby enemies. [Stats: x0.97 damage]</Description>
 		<IconName>a_PetIcon_Fairy</IconName>
 		<CastSound>CHR_FlameSeer_IridescentBurst_Build[500]CHR_FlameSeer_IridescentBurst</CastSound>
@@ -56002,7 +56002,7 @@
 		<ProcModifier>0</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>PetHawk</PowerGroup>
-		<AddTargetBuff>Staggered</AddTargetBuff>
+		<AddTargetBuff>Staggered,PetArmorBane</AddTargetBuff>
 		<Description>Swoops past your enemies, damaging them. [Stats: x3.05 damage, -100% Speed, over 1s]</Description>
 		<IconName>a_PetIcon_Falcon</IconName>
 		<CastAnimSource>L:Feet</CastAnimSource>
