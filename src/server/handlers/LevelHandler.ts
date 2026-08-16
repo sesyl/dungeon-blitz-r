@@ -5196,6 +5196,15 @@ export class LevelHandler {
         const br = new BitReader(data);
         const requestedProgress = br.readMethod4();
         const previousProgress = Number(client.character?.questTrackerState ?? 0);
+        // What the CLIENT thinks the percentage is. Paired with [QuestProgressSend], this says
+        // whether the number on screen is one the server chose or one the client worked out
+        // for itself -- the two members showing 75% and 50% while the server broadcasts a
+        // single value to both can only be the latter.
+        console.log(
+            `[QuestProgressRecv] ${String(client.character?.name ?? '?')} ` +
+            `requested=${requestedProgress} previous=${previousProgress} ` +
+            `level=${String(client.currentLevel ?? '?')}`
+        );
         let progress = requestedProgress;
         const currentLevel = LevelConfig.normalizeLevelName(
             client.currentLevel || String(client.character?.CurrentLevel?.name ?? '')
