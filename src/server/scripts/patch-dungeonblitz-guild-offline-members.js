@@ -215,6 +215,70 @@ function patchClass56(source) {
     const eol = source.includes('\r\n') ? '\r\n' : '\n';
     const join = (lines) => lines.join(eol);
 
+    // method_145 renders one list row. Offline guild members previously showed
+    // only their name (var_207) with an "Offline" tag; give them the same
+    // "[rank] Name, Level X Class" treatment as online rows, wrapped in the gray
+    // const_992 font so the whole row reads as offline. Friends/zone/ignore lists
+    // keep their existing offline rendering (param4 != const_530).
+    const offlineRowOriginal = join([
+        '               else if(!_loc10_.bOnline)',
+        '               {',
+        '                  MathUtil.method_2(_loc11_.am_Name,_loc10_.var_207,true);',
+        '                  if(_loc10_.var_276)',
+        '                  {',
+        '                     MathUtil.method_2(_loc11_.am_Zone,const_539 + "Pending" + class_127.var_121,true);',
+        '                  }',
+        '                  else',
+        '                  {',
+        '                     MathUtil.method_2(_loc11_.am_Zone,const_992 + "Offline" + class_127.var_121,true);',
+        '                  }',
+        '               }'
+    ]);
+    const offlineRowPatched = join([
+        '               else if(!_loc10_.bOnline)',
+        '               {',
+        '                  if(param4 == const_530)',
+        '                  {',
+        '                     _loc7_ = _loc10_.charName + ", Level " + _loc10_.var_2100 + " " + _loc10_.className;',
+        '                     if(_loc10_.var_289 == Entity.const_236)',
+        '                     {',
+        '                        _loc13_ = "[L]";',
+        '                     }',
+        '                     else if(_loc10_.var_289 == Entity.const_139)',
+        '                     {',
+        '                        _loc13_ = "[O]";',
+        '                     }',
+        '                     else if(_loc10_.var_289 == Entity.const_309)',
+        '                     {',
+        '                        _loc13_ = "[M]";',
+        '                     }',
+        '                     else if(_loc10_.var_289 == Entity.const_308)',
+        '                     {',
+        '                        _loc13_ = "[I]";',
+        '                     }',
+        '                     else if(_loc10_.var_289 == Entity.const_470)',
+        '                     {',
+        '                        _loc13_ = "[S]";',
+        '                     }',
+        '                     _loc7_ = _loc13_ + " " + _loc7_;',
+        '                     MathUtil.method_2(_loc11_.am_Name,const_992 + _loc7_ + class_127.var_121,true);',
+        '                     MathUtil.method_2(_loc11_.am_Zone,const_992 + "Offline" + class_127.var_121,true);',
+        '                  }',
+        '                  else',
+        '                  {',
+        '                     MathUtil.method_2(_loc11_.am_Name,_loc10_.var_207,true);',
+        '                     if(_loc10_.var_276)',
+        '                     {',
+        '                        MathUtil.method_2(_loc11_.am_Zone,const_539 + "Pending" + class_127.var_121,true);',
+        '                     }',
+        '                     else',
+        '                     {',
+        '                        MathUtil.method_2(_loc11_.am_Zone,const_992 + "Offline" + class_127.var_121,true);',
+        '                     }',
+        '                  }',
+        '               }'
+    ]);
+
     // method_159 counts every entry in the guild list as the "members online"
     // number, which was fine when the server only sent online members. With the
     // full roster now present, count only bOnline entries and report both counts,
@@ -265,6 +329,12 @@ function patchClass56(source) {
     let patched = source;
     patched = replaceBlock(
         patched,
+        [offlineRowOriginal],
+        offlineRowPatched,
+        'class_56 offline guild row rank/level/class'
+    );
+    patched = replaceBlock(
+        patched,
         [countOriginal],
         countPatched,
         'class_56 guild member online count'
@@ -282,6 +352,12 @@ function verifyClass56(source, swfPath) {
     }
     if (source.includes('"1 member online."')) {
         throw new Error(`${path.basename(swfPath)} class_56 still contains the stale single-online count branch.`);
+    }
+    if (!source.includes('MathUtil.method_2(_loc11_.am_Name,const_992 + _loc7_ + class_127.var_121,true);')) {
+        throw new Error(`${path.basename(swfPath)} class_56 is missing the gray offline guild row name.`);
+    }
+    if (!source.includes('MathUtil.method_2(_loc11_.am_Name,_loc10_.var_207,true);')) {
+        throw new Error(`${path.basename(swfPath)} class_56 is missing the non-guild offline row branch.`);
     }
 }
 

@@ -287,7 +287,12 @@ export class GuildHandler {
             });
         }
 
+        // Online members first, then offline, each group ordered by rank then name.
         summaries.sort((left, right) => {
+            if (left.online !== right.online) {
+                return left.online ? -1 : 1;
+            }
+
             const rankDiff = left.rank - right.rank;
             if (rankDiff !== 0) {
                 return rankDiff;
