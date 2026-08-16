@@ -16,6 +16,7 @@ import { NpcLoader } from '../data/NpcLoader';
 import { CombatHandler } from '../handlers/CombatHandler';
 import { MissionHandler } from '../handlers/MissionHandler';
 import { EntityHandler } from '../handlers/EntityHandler';
+import { LevelHandler } from '../handlers/LevelHandler';
 import { BitBuffer } from '../network/protocol/bitBuffer';
 import { BitReader } from '../network/protocol/bitReader';
 
@@ -300,40 +301,21 @@ function testStaleTrackedHostilesDoNotInflateProgress(): void {
 }
 
 function testMissingDrawnHostilesAreRedrawn(): void {
+    // Inert while the server does not draw these hostiles: reconcileDrawnHostilesForScope
+    // returns immediately for any level that is not canonical-visible. Asserting that keeps
+    // the guard honest -- re-enabling server-drawn hostiles must not silently start
+    // duplicating the client's own copies.
     const zeus = createFakeClient('Zeus', 'east-wing-redraw', 13977, 1);
     attachPlayer(zeus);
     GlobalState.sessionsByToken.set(zeus.token, zeus as never);
     EntityHandler.sendInitialLevelEntities(zeus as never, zeus.currentLevel);
     const scope = getLevelScopeKey(zeus.currentLevel, zeus.levelInstanceId);
 
-    const drawn = getHostiles(scope).filter(
-        (hostile) => !EntityHandler.isCanonicalRoomBossEntity(hostile)
-    );
-    assert.ok(drawn.length > 0, 'expected the server to draw non-boss hostiles');
-
     zeus.sentPackets.length = 0;
     EntityHandler.reconcileDrawnHostilesForScope(scope, [zeus as never]);
-    const redrawn = zeus.sentPackets.filter((packet) => packet.id === 0x0F).length;
-    assert.equal(redrawn, drawn.length, 'every drawn hostile should be re-sent while retries remain');
-
-    // Bounded: it must stop rather than become a stream.
-    for (let pass = 0; pass < 8; pass += 1) {
-        EntityHandler.reconcileDrawnHostilesForScope(scope, [zeus as never]);
-    }
-    zeus.sentPackets.length = 0;
-    EntityHandler.reconcileDrawnHostilesForScope(scope, [zeus as never]);
-    assert.equal(zeus.sentPackets.length, 0, 'the redraw must stop once its retry budget is spent');
-
-    // The boss stays client-spawned, so the reconcile must never draw it.
-    const boss = getHostiles(scope).find((hostile) => EntityHandler.isCanonicalRoomBossEntity(hostile));
-    assert.ok(boss, 'the East Wing roster should contain a room boss');
-    assert.equal(zeus.entities.has(Number(boss.id)), false, 'the reconcile must not draw the room boss');
+    assert.equal(zeus.sentPackets.length, 0, 'the redraw must stay off while the client spawns the hostiles');
 }
 
-// The mission sync is the only per-character emitter of 0xB7, and it ran at level entry
-// before the shared progress existed -- so it pushed whatever each player carried in from the
-// town they came from. Two members arriving from two towns got two numbers: the East Wing
-// opening at 75% for one and 50% for the other, which no shared broadcast can produce.
 function testEntryDoesNotPushCarriedQuestProgress(): void {
     const leader = createFakeClient('Zeus', 'east-wing-carried', 14011, 1);
     const joiner = createFakeClient('Telahair', 'east-wing-carried', 14012, 1);
@@ -367,7 +349,7 @@ function testEntryDoesNotPushCarriedQuestProgress(): void {
     GlobalState.sessionsByToken.delete(joiner.token);
 }
 
-function testInitialCanonicalSendsVisibleServerHostiles(): void {
+function testInitialCanonicalSendsNoVisibleServerHostiles(): void {
     const zeus = createFakeClient('Zeus', 'east-wing-initial', 13933, 1);
     attachPlayer(zeus);
     GlobalState.sessionsByToken.set(zeus.token, zeus as never);
@@ -375,20 +357,81 @@ function testInitialCanonicalSendsVisibleServerHostiles(): void {
     const scope = getLevelScopeKey(zeus.currentLevel, zeus.levelInstanceId);
 
     assertAllCanonicalHostiles(scope);
-    // The server DRAWS these hostiles now: each must arrive as a real remote entity through
-    // 0x0F, because that is the only path that gives the client's copy a class_122 record.
-    // Without one, both the 0x07 and the 0x0D readers return early and no server-decided
-    // health or death can ever reach it.
-    const spawned = zeus.sentPackets.filter((packet) => packet.id === 0x0F).length;
-    assert.equal(spawned, EAST_WING_ENEMY_COUNT - 1, 'initial sync should draw every canonical hostile except the room boss');
 
-    // The boss is the exception, and it is load-bearing: room 3 runs the encounter from its
-    // am_Boss cue, so the client keeps spawning it and the level SWF's cue suppression skips
-    // it too. Drawing it here would show it twice -- LinkUpdater.method_1828 only merges
-    // duplicates that both carry the REMOTE flag.
-    const boss = getHostiles(scope).find((hostile) => EntityHandler.isCanonicalRoomBossEntity(hostile));
-    assert.ok(boss, 'the East Wing roster should contain a room boss');
-    assert.equal(zeus.entities.has(Number(boss.id)), false, 'the room boss must stay client-spawned');
+    // The server seeds the canonical roster but does NOT draw it: the client spawns these
+    // hostiles from the level's own cues, and the server binds to those copies.
+    //
+    // Drawing them here would mean suppressing the cues, and the client's dungeon progress
+    // cannot survive that -- Room.var_802 is accumulated only inside Room.SpawnCue, so held
+    // cues leave every room reading as fully cleared. See the comment on
+    // FIRST_SIGHT_SERVER_AUTHORITY_HOSTILE_LEVELS.
+    assert.equal(
+        zeus.sentPackets.some((packet) => packet.id === 0x0F),
+        false,
+        'initial sync must not draw server hostiles; the client spawns them from its own cues'
+    );
+}
+
+// A kill must reach the other member as DAMAGE, addressed with that member's own id.
+//
+// The client drops 0x07 and 0x0D for any entity with no class_122 record, and a hostile it
+// spawned from its own level cue never has one -- which is why a server-decided death never
+// left the killer's screen. 0x78 has no such gate: its reader calls TakeDamage, so the other
+// client kills its own copy and runs its own death path, including the room bookkeeping its
+// dungeon percentage is computed from.
+async function testKillReachesTheOtherMemberAsLethalDamage(): Promise<void> {
+    const zeus = createFakeClient('Zeus', 'east-wing-share', 14101, 1);
+    const telahair = createFakeClient('Telahair', 'east-wing-share', 14102, 1);
+    setParty(zeus, telahair);
+    for (const client of [zeus, telahair]) {
+        attachPlayer(client);
+        GlobalState.sessionsByToken.set(client.token, client as never);
+        EntityHandler.sendInitialLevelEntities(client as never, client.currentLevel);
+    }
+    const scope = getLevelScopeKey(zeus.currentLevel, zeus.levelInstanceId);
+
+    // Each client reports its own copy of the same authored hostile.
+    attachProxy(zeus, 510001, 1);
+    attachProxy(telahair, 610001, 1);
+    const canonicalId = EntityHandler.resolveEntityAlias(zeus as never, 510001);
+    assert.ok(canonicalId > 0, 'starter copy should bind to a canonical hostile');
+    assert.equal(
+        EntityHandler.resolveEntityAlias(telahair as never, 610001),
+        canonicalId,
+        'both copies of one authored hostile must bind to the same canonical'
+    );
+
+    const canonical = GlobalState.levelEntities.get(scope)?.get(canonicalId);
+    assert.ok(canonical, 'canonical hostile should exist');
+    assert.equal(Boolean(canonical.dead), false, 'the test hostile must start alive');
+
+    // The server tracks the canonical, so by the time a death is broadcast it already
+    // believes the other member copy is at zero -- and finalizeHostileDeath only sends an HP
+    // correction when it thinks there is health left. Reproduce that, so this can only pass
+    // if the destroy broadcast sends its own unconditional lethal damage.
+    const telahairCopy = telahair.entities.get(610001);
+    if (telahairCopy) { telahairCopy.hp = 0; }
+
+    telahair.sentPackets.length = 0;
+    await CombatHandler.handlePowerHit(
+        zeus as never,
+        buildPowerHitPayload(510001, zeus.clientEntID, Math.round(Number(canonical.hp ?? 0)) + 999)
+    );
+    assert.equal(canonical.dead, true, 'the hit should kill the canonical hostile');
+
+    const lethal = telahair.sentPackets
+        .filter((packet) => packet.id === 0x78)
+        .map((packet) => parseHpDelta(packet.payload))
+        .filter((hp) => hp.entityId === 610001 && hp.delta < 0);
+    assert.ok(lethal.length > 0, 'the other member must be sent damage against their OWN copy id');
+    assert.ok(
+        Math.abs(lethal[lethal.length - 1].delta) >= Math.round(Number(canonical.maxHp ?? 1)),
+        'the damage must be lethal, or the copy survives on the other screen'
+    );
+
+    for (const client of [zeus, telahair]) {
+        GlobalState.sessionsByToken.delete(client.token);
+    }
 }
 
 async function testProxyAttachKillProgressAndLateJoiner(): Promise<void> {
@@ -465,13 +508,14 @@ async function main(): Promise<void> {
         testRegistryLoad();
 
         resetRuntime();
-        testInitialCanonicalSendsVisibleServerHostiles();
+        testInitialCanonicalSendsNoVisibleServerHostiles();
     testMissingDrawnHostilesAreRedrawn();
     testStaleTrackedHostilesDoNotInflateProgress();
     testEntryDoesNotPushCarriedQuestProgress();
 
         resetRuntime();
         await testProxyAttachKillProgressAndLateJoiner();
+    await testKillReachesTheOtherMemberAsLethalDamage();
 
         console.log('east_wing_dungeon_spawns_regression: ok');
     } finally {

@@ -455,10 +455,18 @@ async function testProxyAttachHitDeathAndDestroy(): Promise<void> {
     zeus.sentPackets.length = 0;
     telahair.sentPackets.length = 0;
     CombatHandler.handleCharRegen(telahair as never, buildHpDeltaPayload(600001, -123));
+    // A stale report only needs the client that sent it. Re-running the whole party relay for
+    // a death that has already gone out is what made one enemy re-broadcast a dozen times in a
+    // few seconds; the other member's copy was destroyed by the relay and has nothing left to
+    // converge. Same principle the post-death destroy below already asserts.
     const sourceDeadConverge = telahair.sentPackets.find((packet) => packet.id === 0x07 && parseEntityState(packet.payload).entityId === 600001);
-    const viewerDeadConverge = zeus.sentPackets.find((packet) => packet.id === 0x07 && parseEntityState(packet.payload).entityId === 500001);
+    assert.ok(sourceDeadConverge, 'post-death duplicate HP report should reconverge the reporting proxy');
     assert.equal(parseEntityState(sourceDeadConverge!.payload).entState, EntityState.DEAD, 'post-death duplicate HP report should reconverge source local proxy to DEAD');
-    assert.equal(parseEntityState(viewerDeadConverge!.payload).entState, EntityState.DEAD, 'post-death duplicate HP report should reconverge party viewer local proxy to DEAD');
+    assert.equal(
+        zeus.sentPackets.some((packet) => packet.id === 0x07 || packet.id === 0x0D),
+        false,
+        'post-death duplicate HP report must not re-broadcast the death to the rest of the party'
+    );
 
     zeus.sentPackets.length = 0;
     telahair.sentPackets.length = 0;

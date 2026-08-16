@@ -47,16 +47,12 @@ function createNpc(name: string, extras: Record<string, unknown> = {}): any {
 }
 
 
-// Where the server draws the hostiles it must also drive them. updateLevel used to skip
-// every server-authority level, on the reasoning that the clients animate their own copies
-// -- true until the server owned the bodies. In The East Wing there is no client copy left,
-// so the skip left every enemy standing still in its idle pose.
 // The AI tick read sessionsByLevelScope, the derived index that has dropped a live member in
 // every other fan-out in this system. A scope missing from it is not ticked at all: its enemies
 // never move, and nothing holds them at their home position, so they drift out of the world.
 function testAiTickFindsScopeMissingFromTheIndex(): void {
-    const scope = 'JC_Mini2#ai-index-gap';
-    const player = createPlayer('JC_Mini2');
+    const scope = 'OMM_Mission2#ai-index-gap';
+    const player = createPlayer('OMM_Mission2');
     player.token = 88_777;
     player.levelInstanceId = 'ai-index-gap';
     player.character.CurrentLevel.x = 60;
@@ -81,33 +77,29 @@ function testAiTickFindsScopeMissingFromTheIndex(): void {
     }
 }
 
-function testServerDrawnHostilesGetAi(): void {
+function testServerAuthorityHostilesAreLeftToTheClient(): void {
+    // The East Wing's hostiles are spawned and animated by the clients again, so the server
+    // must not drive them: server movement would fight the client's own AI on the same body.
+    // (Server-drawn hostiles, and the AI that went with them, are off -- see the comment on
+    // FIRST_SIGHT_SERVER_AUTHORITY_HOSTILE_LEVELS.)
     const scope = 'JC_Mini2#ai-regression';
     const player = createPlayer('JC_Mini2');
     player.levelInstanceId = 'ai-regression';
     player.character.CurrentLevel.x = 60;
-
-    // Every East Wing enemy is requiredForClear, so updateNpc classifies it as a required
-    // boss and uses the tighter aggro radius -- which sits below melee attack range, so a
-    // pulled enemy swings in place instead of moving. Assert the wake, as the miniboss case
-    // above does, which keeps this covering the skip under any radius tuning.
     const minion = createNpc('Ghoul', {
         id: 920_401, requiredForClear: true, entState: EntityState.SLEEP, aiIdleAtHome: true
     });
-    const boss = createNpc('TowerGuard2', {
-        id: 920_402, requiredForClear: true, boss: true, entState: EntityState.SLEEP, aiIdleAtHome: true
-    });
 
-    const levelMap = new Map<number, any>([[minion.id, minion], [boss.id, boss]]);
-    GlobalState.levelEntities.set(scope, levelMap);
+    GlobalState.levelEntities.set(scope, new Map<number, any>([[minion.id, minion]]));
     GlobalState.sessionsByToken.set(player.token, player as never);
     GlobalState.refreshSessionIndexes(player as never);
     try {
         AILogic.updateLevel(scope);
-        assert.equal(minion.entState, EntityState.ACTIVE, 'a server-drawn East Wing hostile should receive server AI');
-        // The room boss is the one hostile the client still spawns, so the server neither
-        // draws nor moves it; driving it would animate a body nobody is looking at.
-        assert.equal(boss.entState, EntityState.SLEEP, 'the client-spawned room boss must not be driven by server AI');
+        assert.equal(
+            minion.entState,
+            EntityState.SLEEP,
+            'a client-spawned server-authority hostile must not be driven by server AI'
+        );
     } finally {
         GlobalState.levelEntities.delete(scope);
         GlobalState.sessionsByToken.delete(player.token);
@@ -256,7 +248,7 @@ function main(): void {
         CombatHandler.broadcastEntityViewPacket = originalBroadcast;
     }
 
-    testServerDrawnHostilesGetAi();
+    testServerAuthorityHostilesAreLeftToTheClient();
     testAiTickFindsScopeMissingFromTheIndex();
 
     console.log('combat_ai_regression: ok');

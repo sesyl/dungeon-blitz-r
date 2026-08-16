@@ -100,10 +100,21 @@ export class EntityHandler {
     // hostiles plus the room-3 boss. The boss is deliberately NOT drawn by the server -- room
     // 3 drives the whole encounter through its am_Boss cue -- so it stays client-spawned and
     // the suppression skips it too.
-    private static readonly FIRST_SIGHT_SERVER_AUTHORITY_HOSTILE_LEVELS = new Set<string>([
-        'JC_Mini2',
-        'JC_Mini2Hard'
-    ]);
+    // EMPTY ON PURPOSE. Server-drawn hostiles are off, and The East Wing is the reason.
+    //
+    // Drawing them here means suppressing the level's own cues, and the client's dungeon
+    // progress cannot survive that: `Room.var_802` (the room's enemy total) is accumulated
+    // only inside `Room.SpawnCue`, and `Room.method_1990` counts only the room's own
+    // `var_229` list. Hold the cues and both stay empty, at which point
+    // `Room.method_1264` hits `if (var_2261 && !var_802) return 0` and the room reads as
+    // fully cleared. Server-sent entities go into `Game.entities`, never into the room's
+    // bookkeeping, so they can never make up the difference -- which is a dungeon opening at
+    // 50% and climbing in room-sized steps, with no server-side fix possible.
+    //
+    // Re-enabling this needs a client patch that registers server-sent hostiles into the
+    // room (`var_229` / `var_802`). Until then the client spawns them and the server binds
+    // to those copies, which is what everything else in this file already assumes.
+    private static readonly FIRST_SIGHT_SERVER_AUTHORITY_HOSTILE_LEVELS = new Set<string>();
     private static readonly CANONICAL_VISIBLE_PROXY_MATCH_MAX_DISTANCE_SQ = 400 * 400;
     static readonly SERVER_AUTHORITY_ENTITY_LEVEL = 50;
     private static readonly HOSTILE_BASE_HITPOINTS = [
@@ -5120,29 +5131,17 @@ export class EntityHandler {
         }
 
         const canonicalIds: number[] = [];
-        // Per room, because "some enemies are missing" is a question about WHICH ones. The
-        // authored East Wing is room1:9 room2:14 room3:1 room4:11; anything short of that in
-        // this line is the server's own roster, and anything short only in a viewer's column
-        // is delivery. The two need opposite fixes, so never guess between them.
-        const liveByRoom = new Map<number, number>();
         for (const entity of levelMap.values()) {
             if (
                 EntityHandler.isServerAuthorityHostileEntity(levelName, entity) &&
                 !EntityHandler.isEntityDead(entity)
             ) {
                 canonicalIds.push(Math.max(0, Math.round(Number(entity.id ?? 0))));
-                const roomId = Math.round(Number(entity?.roomId ?? -1));
-                liveByRoom.set(roomId, (liveByRoom.get(roomId) ?? 0) + 1);
             }
         }
         if (canonicalIds.length === 0) {
             return;
         }
-
-        const roomBreakdown = Array.from(liveByRoom.entries())
-            .sort((a, b) => a[0] - b[0])
-            .map(([roomId, count]) => `room${roomId}:${count}`)
-            .join(' ');
 
         const parts: string[] = [];
         for (const viewer of EntityHandler.getSpawnedSessionsInScope(levelScope)) {
@@ -5162,7 +5161,7 @@ export class EntityHandler {
             : '';
 
         const report =
-            `${levelScope} live=${canonicalIds.length} [${roomBreakdown}] ${parts.sort().join(' ')}${aloneInParty}`;
+            `${levelScope} live=${canonicalIds.length} ${parts.sort().join(' ')}${aloneInParty}`;
         if (report === EntityHandler.lastHostileSnapshotReport) {
             return;
         }
@@ -5338,12 +5337,6 @@ export class EntityHandler {
                 viewer.entities.set(entityId, { ...entityProps });
                 noteDungeonRunEntitySeen(viewer, entityId, entityProps);
                 EntityHandler.sendEntity(viewer, entityProps);
-                console.log(
-                    `[HostileRedraw] ${levelName} canonical=${entityId} ` +
-                    `name=${String(entityProps?.name ?? '?')} -> ` +
-                    `${String(viewer.character?.name ?? '?')} ` +
-                    `attempt=${attempts + 1}/${EntityHandler.DRAWN_HOSTILE_RETRY_LIMIT}`
-                );
             }
         }
     }

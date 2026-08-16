@@ -1244,24 +1244,7 @@ export class LevelHandler {
     }
 
     private static sendQuestProgress(client: Client, percent: number): void {
-        LevelHandler.traceQuestProgressSend('LevelHandler.sendQuestProgress', client, percent);
         client.send(0xB7, LevelHandler.buildQuestProgressPayload(percent));
-    }
-
-    /**
-     * Every 0xB7 the server emits, tagged with its origin.
-     *
-     * The East Wing opened at 75% for one member and 50% for the other, unchanged across
-     * three separate fixes to the shared-progress maths -- which is the signal that the
-     * number was never coming from there. Seven different places emit this packet across
-     * LevelHandler and MissionHandler; the last one to fire before the screen settles is the
-     * one that decides what the player sees. Tag them all rather than reason about ordering.
-     */
-    static traceQuestProgressSend(origin: string, client: Client, percent: unknown): void {
-        console.log(
-            `[QuestProgressSend] ${origin} -> ${String(client.character?.name ?? '?')} ` +
-            `percent=${Number(percent ?? 0)} level=${String(client.currentLevel ?? '?')}`
-        );
     }
 
     private static getDialogueLanguage(character: Character | null | undefined): string {
@@ -1302,15 +1285,6 @@ export class LevelHandler {
     private static broadcastSharedDungeonQuestProgress(levelScope: string, progress: number): void {
         const payload = LevelHandler.buildQuestProgressPayload(progress);
 
-        // The percentage is a ratio, so a surprising value is only ever explained by its two
-        // terms. Reported live: a run opening at 50% on both screens, which a clean scope does
-        // not reproduce (it computes 0/35). Log the terms so the next run says which of them
-        // is wrong rather than leaving it to be guessed at.
-        const totals = getSharedDungeonProgressTotals(levelScope);
-        console.log(
-            `[DungeonProgress] ${levelScope} progress=${progress}% ` +
-            `defeated=${totals.defeated}/${totals.total}`
-        );
         // Live sessions, not `sessionsByLevelScope`.
         //
         // The progress number is computed once for the whole run, so the only way two members
@@ -1329,7 +1303,6 @@ export class LevelHandler {
             if (other.character) {
                 other.character.questTrackerState = progress;
             }
-            LevelHandler.traceQuestProgressSend('broadcastSharedDungeonQuestProgress', other, progress);
             other.send(0xB7, payload);
         }
     }
@@ -1471,7 +1444,6 @@ export class LevelHandler {
         }
 
         client.character.questTrackerState = sharedState.progress;
-        LevelHandler.traceQuestProgressSend('syncSharedDungeonQuestProgressState', client, sharedState.progress);
         client.send(0xB7, LevelHandler.buildQuestProgressPayload(sharedState.progress));
     }
 
@@ -5196,15 +5168,6 @@ export class LevelHandler {
         const br = new BitReader(data);
         const requestedProgress = br.readMethod4();
         const previousProgress = Number(client.character?.questTrackerState ?? 0);
-        // What the CLIENT thinks the percentage is. Paired with [QuestProgressSend], this says
-        // whether the number on screen is one the server chose or one the client worked out
-        // for itself -- the two members showing 75% and 50% while the server broadcasts a
-        // single value to both can only be the latter.
-        console.log(
-            `[QuestProgressRecv] ${String(client.character?.name ?? '?')} ` +
-            `requested=${requestedProgress} previous=${previousProgress} ` +
-            `level=${String(client.currentLevel ?? '?')}`
-        );
         let progress = requestedProgress;
         const currentLevel = LevelConfig.normalizeLevelName(
             client.currentLevel || String(client.character?.CurrentLevel?.name ?? '')
@@ -6236,6 +6199,22 @@ export class LevelHandler {
                 return;
             }
             if (isDefeatEntState && !canonicalDead) {
+                // The owning client says its copy died and the canonical still has health, so
+                // the report is refused and the copy is stood back up.
+                //
+                // This is the last rejection in the chain with no log, and the chain is the
+                // point: the death relay only ever fires for a canonical that is ALREADY
+                // buried, so a kill refused here is a kill nobody else is told about -- a run
+                // with no [EnemyDeath] line in it, which is what the live logs show. The
+                // canonicalHp/localHp pair decides where the fix belongs: pools that disagree
+                // mean the health sync is wrong, pools that agree mean this gate is.
+                console.warn(
+                    `[HostileDeathRejected] ${currentLevel} id=${Math.round(Number(levelEntity?.id ?? entityId))} ` +
+                    `name=${String(levelEntity?.name ?? ent?.name ?? '?')} ` +
+                    `reporter=${String(client.character?.name ?? '?')} ` +
+                    `canonicalHp=${Math.round(Number(levelEntity?.hp ?? 0))}/${Math.round(Number(levelEntity?.maxHp ?? 0))} ` +
+                    `localHp=${Math.round(Number(ent?.hp ?? 0))}/${Math.round(Number(ent?.maxHp ?? 0))}`
+                );
                 const { CombatHandler } = require('./CombatHandler') as typeof import('./CombatHandler');
                 CombatHandler.correctServerAuthorityHostileProxy(
                     client,
@@ -6508,6 +6487,30 @@ export class LevelHandler {
                 Number(ent.x ?? 0),
                 Number(ent.y ?? 0)
             );
+        }
+
+        // A client-decided kill has to reach the rest of the party.
+        //
+        // These hostiles are spawned, fought and killed by whichever client owns the copy; the
+        // server only receives the report, and the block above writes `dead` onto the canonical
+        // from it. That made the kill count towards the run's progress while telling nobody --
+        // the other member's own copy stayed up and kept being fought.
+        //
+        // Relayed through the same route as a server kill, so the other members receive the
+        // lethal 0x78 their client actually acts on: 0x07 and 0x0D are both dropped for an
+        // entity with no class_122 record, which a client-spawned hostile never has.
+        if (isEnemyEntity && canonicalIsDefeatState && !Boolean((ent as any).partyDeathRelayed)) {
+            const canonicalForRelay = levelEntity ?? ent;
+            (ent as any).partyDeathRelayed = true;
+            if (canonicalForRelay && typeof canonicalForRelay === 'object') {
+                (canonicalForRelay as any).partyDeathRelayed = true;
+                const { CombatHandler } = require('./CombatHandler') as typeof import('./CombatHandler');
+                CombatHandler.relayClientReportedHostileDeath(
+                    client,
+                    getClientLevelScope(client),
+                    canonicalForRelay
+                );
+            }
         }
 
         if (

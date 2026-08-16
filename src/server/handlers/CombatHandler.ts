@@ -3906,6 +3906,79 @@ export class CombatHandler {
         return viewers.length > 0;
     }
 
+    /**
+     * Share a hostile death the *client* decided, not the server.
+     *
+     * A hostile the client spawned from its own level cue is killed by that client, which then
+     * reports it. `LevelHandler.handleEntityIncrementalUpdate` accepts the report and marks the
+     * canonical dead -- so the run's progress counts it -- but nothing told the other members,
+     * and their own copy stayed up. The live logs showed exactly that shape: `defeated=4/35`
+     * with not one `[EnemyDeath]` or `[EnemyDestroy]` line, because the whole relay hangs off
+     * server-decided kills and a client-decided one never reached it.
+     *
+     * Routed through the same relay as a server kill, so the other members get the lethal 0x78
+     * their client actually acts on, addressed with their own id.
+     */
+    static relayClientReportedHostileDeath(anchor: Client, levelScope: string, entity: any): void {
+        CombatHandler.shareHostileDeathOnce(anchor, levelScope, entity);
+    }
+
+    /**
+     * Share a death once; answer every later report of it with one client's own correction.
+     *
+     * A client that is still holding a corpse keeps reporting health for it, and each report
+     * used to re-run the entire party relay: `finalizeHostileDeath`, a destroy broadcast to
+     * every viewer, the retry bookkeeping and a progress recompute -- for a death that had
+     * already gone out. The live log showed one enemy doing that a dozen times in a few
+     * seconds, and with 35 hostiles in the room that is what the packet queue was spending
+     * itself on rather than on movement.
+     *
+     * The first report still shares the kill with the whole party. Every one after it costs
+     * three packets, addressed at the one client that has not caught up.
+     */
+    private static shareHostileDeathOnce(anchor: Client, levelScope: string, entity: any): void {
+        if (entity && typeof entity === 'object' && entity.partyDeathRelayed) {
+            CombatHandler.correctViewerForBuriedHostile(anchor, levelScope, entity);
+            return;
+        }
+        CombatHandler.relayServerAuthorityNpcDeath(anchor, levelScope, entity);
+    }
+
+    /** Bury this hostile on one screen only -- the same three packets the relay sends a viewer. */
+    private static correctViewerForBuriedHostile(viewer: Client, levelScope: string, entity: any): void {
+        const canonicalId = Math.max(0, Math.round(Number(entity?.id ?? 0)));
+        if (canonicalId <= 0) {
+            return;
+        }
+
+        const resolved = EntityHandler.resolveHostileLocalIdForViewer(
+            viewer,
+            levelScope,
+            canonicalId,
+            'buried-hostile-report'
+        );
+        const localId = resolved.ok && resolved.localId > 0
+            ? resolved.localId
+            : EntityHandler.getRegisteredHostileLocalIdForViewer(viewer, entity) ||
+                EntityHandler.resolveEntityLocalId(viewer, canonicalId);
+        if (localId <= 0) {
+            return;
+        }
+
+        const localCopy = viewer.entities.get(localId) ?? viewer.entities.get(canonicalId) ?? entity;
+        const lethalHp = Math.max(
+            1,
+            Math.round(Number(localCopy?.maxHp ?? entity?.maxHp ?? entity?.hp ?? 1)) || 1
+        );
+        viewer.send(0x78, CombatHandler.buildHpDeltaPayload(localId, -lethalHp));
+        viewer.send(0x07, EntityHandler.buildEntityStateDeadPayload(localId));
+        viewer.send(0x0D, CombatHandler.buildDestroyEntityPayload(localId, true));
+        viewer.entities.delete(localId);
+        viewer.entities.delete(canonicalId);
+        viewer.knownEntityIds.delete(localId);
+        viewer.knownEntityIds.delete(canonicalId);
+    }
+
     private static relayServerAuthorityNpcDeath(anchor: Client, levelScope: string, entity: any): void {
         if (!CombatHandler.isServerAuthoritySyncNpc(levelScope, entity)) {
             // The kill is leaving the shared path entirely, so no other party member will be
@@ -3979,6 +4052,11 @@ export class CombatHandler {
             `name=${String(entity?.name ?? '?')} killer=${String(anchor.character?.name ?? '?')} ` +
             `told=[${viewers.join(',')}]${skipped.length ? ` NOT-TOLD=[${skipped.join(',')}]` : ''}`
         );
+        // Latched, so a client still holding the corpse gets its own three-packet correction
+        // instead of another party-wide relay. See shareHostileDeathOnce.
+        if (entity && typeof entity === 'object') {
+            entity.partyDeathRelayed = true;
+        }
         CombatHandler.refreshServerAuthorityProgressWithRetries(levelScope, 'authoritative_death_relay');
     }
 
@@ -4063,7 +4141,15 @@ export class CombatHandler {
                 }
                 CombatHandler.deadHostileRetries.set(retryKey, attempts + 1);
 
-                // Same pair as the destroy broadcast: dead state, then destroy.
+                // Same sequence as the destroy broadcast: lethal damage first, then the state
+                // and the destroy. The damage is the only one of the three the client acts on
+                // for a hostile it spawned itself -- see the comment there.
+                const localCopy = viewer.entities.get(localId) ?? viewer.entities.get(canonicalId) ?? entity;
+                const lethalHp = Math.max(
+                    1,
+                    Math.round(Number(localCopy?.maxHp ?? entity?.maxHp ?? entity?.hp ?? 1)) || 1
+                );
+                viewer.send(0x78, CombatHandler.buildHpDeltaPayload(localId, -lethalHp));
                 viewer.send(0x07, EntityHandler.buildEntityStateDeadPayload(localId));
                 viewer.send(0x0D, CombatHandler.buildDestroyEntityPayload(localId, true));
                 viewer.entities.delete(localId);
@@ -4117,7 +4203,42 @@ export class CombatHandler {
                 ? resolved.localId
                 : EntityHandler.getRegisteredHostileLocalIdForViewer(viewer, destroyedEntity) ||
                     EntityHandler.resolveEntityLocalId(viewer, entityId);
-            // Dead state first, destroy second: the destroy removes it for anything with a brain, and the dead state is what lets the engine retire everything else by itself.
+            // Kill it with damage, not with a state change.
+            //
+            // 0x07 and 0x0D are both dropped by the client for an entity with no `var_38`
+            // (the class_122 server-driven record), and a hostile the client spawned from its
+            // own level cue never has one -- which is why a server-decided death could never
+            // reach the other screen and the enemy stayed up for everyone but the killer.
+            //
+            // 0x78 has no such gate. Its reader is `if (ent) ent.method_831(delta, false)`,
+            // and method_831 calls `TakeDamage(-delta, true)`: the client's own damage path.
+            // So a lethal negative delta makes that client kill its own copy, which runs the
+            // death animation, the corpse, the loot and -- the part nothing else could reach --
+            // the room's own bookkeeping. `Room.var_229` / `Room.var_802` are what the client
+            // computes its dungeon percentage from, so the two members' progress converges by
+            // itself instead of each counting only what it killed.
+            //
+            // The state and destroy still follow, for anything that does have a brain.
+            //
+            // Sent unconditionally, and that is the point. finalizeHostileDeath already sends
+            // an HP correction, but only `if (previousLocalHp > 0)` -- and the server tracks
+            // the canonical, so by the time the death is broadcast it believes this viewer's
+            // copy is already at zero and sends nothing at all. The live log showed the destroy
+            // going out addressed correctly (`Telahair:15109893`) over and over while that
+            // player's screen kept the enemy up and attacking: the two packets that did arrive
+            // are the two the client drops for an entity with no class_122 record. This is the
+            // one it acts on -- its reader calls TakeDamage -- so the copy dies on that screen
+            // through the client's own death path, with the room bookkeeping that goes with it.
+            if (viewer !== anchor) {
+                const localCopy = viewer.entities.get(localEntityId) ??
+                    viewer.entities.get(entityId) ??
+                    destroyedEntity;
+                const lethalHp = Math.max(
+                    1,
+                    Math.round(Number(localCopy?.maxHp ?? destroyedEntity?.maxHp ?? destroyedEntity?.hp ?? 1)) || 1
+                );
+                viewer.send(0x78, CombatHandler.buildHpDeltaPayload(localEntityId, -lethalHp));
+            }
             viewer.send(0x07, EntityHandler.buildEntityStateDeadPayload(localEntityId));
             viewer.send(0x0D, CombatHandler.buildDestroyEntityPayload(localEntityId, immediate));
             viewer.entities.delete(localEntityId);
@@ -4287,8 +4408,21 @@ export class CombatHandler {
             return;
         }
 
+        // Damage never goes back to the player who is taking it.
+        //
+        // 0x78 used to discard every negative delta at the client's door -- `method_3000`
+        // opened with `if (!ent || amount <= 0) return` -- so nothing here has ever applied
+        // damage to anybody. The client is patched now so the server can force a kill on a
+        // hostile it does not own (patch-dungeonblitz-charregen-damage-channel.ts), and that
+        // makes this line live for the first time.
+        //
+        // For the other members that is the point: their screen learns the victim's new
+        // health. For the victim it is a second application of a hit their own client already
+        // ran, so they are excluded.
+        const targetInclusion = delta < 0 ? false : includeTarget;
+
         const payload = CombatHandler.buildHpDeltaPayload(targetSession.clientEntID, delta);
-        CombatHandler.broadcastToCombatRoom(targetSession, CombatHandler.CLIENT_HEAL_PACKET_ID, payload, includeTarget, [targetSession.clientEntID]);
+        CombatHandler.broadcastToCombatRoom(targetSession, CombatHandler.CLIENT_HEAL_PACKET_ID, payload, targetInclusion, [targetSession.clientEntID]);
     }
 
     private static broadcastPlayerState(targetSession: Client, entState: number, roomScoped: boolean = false): void {
@@ -5684,6 +5818,27 @@ export class CombatHandler {
             Number(sourceEntity.team ?? 0) === EntityTeam.ENEMY
         );
         if (targetEntity && CombatHandler.isTerminalHostileEntity(targetEntity)) {
+            // Hitting something the run has already buried. Dropping the hit silently leaves
+            // that copy immortal on this screen: the canonical can never die a second time, so
+            // no death is ever relayed for it, and the player keeps swinging at a body nobody
+            // else still has.
+            //
+            // This is exactly what a late joiner sees -- every enemy the party killed before
+            // they arrived is alive and unkillable for them. Answer the hit by burying their
+            // copy instead of ignoring it. The damage is the part that lands: 0x07 and 0x0D are
+            // dropped by the client for a hostile it spawned itself, which has no class_122
+            // record, and its 0x78 reader calls TakeDamage.
+            const buriedLocalId = Math.max(0, Math.round(Number(parsedInfo.targetId) || 0));
+            if (buriedLocalId > 0) {
+                const localCopy = client.entities.get(buriedLocalId) ?? targetEntity;
+                const lethalHp = Math.max(
+                    1,
+                    Math.round(Number(localCopy?.maxHp ?? targetEntity?.maxHp ?? 1)) || 1
+                );
+                client.send(0x78, CombatHandler.buildHpDeltaPayload(buriedLocalId, -lethalHp));
+                client.send(0x07, EntityHandler.buildEntityStateDeadPayload(buriedLocalId));
+                client.send(0x0D, CombatHandler.buildDestroyEntityPayload(buriedLocalId, true));
+            }
             return;
         }
         if (isHostileNpcSource && CombatHandler.isTerminalHostileEntity(sourceEntity)) {
@@ -6466,7 +6621,7 @@ export class CombatHandler {
             if (CombatHandler.isServerAuthoritySyncNpc(levelScope, targetEntity)) {
                 const canonicalId = Math.max(0, Math.round(Number(targetEntity.id ?? entityId)));
                 if (CombatHandler.isTerminalHostileEntity(targetEntity)) {
-                    CombatHandler.relayServerAuthorityNpcDeath(
+                    CombatHandler.shareHostileDeathOnce(
                         client,
                         levelScope,
                         targetEntity
@@ -6487,7 +6642,7 @@ export class CombatHandler {
                         targetEntity.entState = EntityState.ACTIVE;
                     }
                 } else if (alreadyBuried) {
-                    CombatHandler.relayServerAuthorityNpcDeath(client, levelScope, targetEntity);
+                    CombatHandler.shareHostileDeathOnce(client, levelScope, targetEntity);
                     return true;
                 }
                 EntityHandler.normalizeServerAuthorityHostileState(levelScope, targetEntity);
@@ -6499,11 +6654,23 @@ export class CombatHandler {
                         targetEntity,
                         'client_hostile_hp_report'
                     );
-                    if (Math.round(Number(targetEntity.hp ?? 0)) <= CombatHandler.DEATH_EPSILON_HP || amount < 0) {
+                    // The canonical has just run out of health, so this report IS the death.
+                    //
+                    // This block was empty, and the line under it then told the client the
+                    // enemy was still alive. Only the `else` below -- a canonical that was
+                    // ALREADY buried -- ever reached the relay, so an enemy that ran out of
+                    // health here was never declared dead and never shared: the run counted it
+                    // (progress reads hp <= 0 as defeated) while every screen kept its own copy
+                    // up. That is a live log with `defeated=4/35` in it and not one
+                    // [EnemyDeath], [HostileDeathRefused] or [HostileDeathRejected] line --
+                    // none of those fire, because none of those paths is where it happens.
+                    if (Math.round(Number(targetEntity.hp ?? 0)) <= CombatHandler.DEATH_EPSILON_HP) {
+                        CombatHandler.shareHostileDeathOnce(client, levelScope, targetEntity);
+                        return true;
                     }
                     CombatHandler.sendServerAuthorityAliveCorrection(client, levelScope, targetEntity, 'client_hostile_hp_report', rawEntityId);
                 } else {
-                    CombatHandler.relayServerAuthorityNpcDeath(client, levelScope, targetEntity);
+                    CombatHandler.shareHostileDeathOnce(client, levelScope, targetEntity);
                     return true;
                 }
                 CombatHandler.convergeServerAuthorityNpcHealthToParty(
