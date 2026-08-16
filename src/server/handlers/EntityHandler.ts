@@ -5120,17 +5120,29 @@ export class EntityHandler {
         }
 
         const canonicalIds: number[] = [];
+        // Per room, because "some enemies are missing" is a question about WHICH ones. The
+        // authored East Wing is room1:9 room2:14 room3:1 room4:11; anything short of that in
+        // this line is the server's own roster, and anything short only in a viewer's column
+        // is delivery. The two need opposite fixes, so never guess between them.
+        const liveByRoom = new Map<number, number>();
         for (const entity of levelMap.values()) {
             if (
                 EntityHandler.isServerAuthorityHostileEntity(levelName, entity) &&
                 !EntityHandler.isEntityDead(entity)
             ) {
                 canonicalIds.push(Math.max(0, Math.round(Number(entity.id ?? 0))));
+                const roomId = Math.round(Number(entity?.roomId ?? -1));
+                liveByRoom.set(roomId, (liveByRoom.get(roomId) ?? 0) + 1);
             }
         }
         if (canonicalIds.length === 0) {
             return;
         }
+
+        const roomBreakdown = Array.from(liveByRoom.entries())
+            .sort((a, b) => a[0] - b[0])
+            .map(([roomId, count]) => `room${roomId}:${count}`)
+            .join(' ');
 
         const parts: string[] = [];
         for (const viewer of EntityHandler.getSpawnedSessionsInScope(levelScope)) {
@@ -5149,7 +5161,8 @@ export class EntityHandler {
             ? ` PARTY-MEMBER-ALONE-IN-THIS-SCOPE=${String(partied[0].character?.name ?? '?')}`
             : '';
 
-        const report = `${levelScope} live=${canonicalIds.length} ${parts.sort().join(' ')}${aloneInParty}`;
+        const report =
+            `${levelScope} live=${canonicalIds.length} [${roomBreakdown}] ${parts.sort().join(' ')}${aloneInParty}`;
         if (report === EntityHandler.lastHostileSnapshotReport) {
             return;
         }
