@@ -11,6 +11,7 @@ import { BitBuffer } from '../network/protocol/bitBuffer';
 import { BitReader } from '../network/protocol/bitReader';
 import { GlobalState, PendingTransfer } from '../core/GlobalState';
 import { LevelConfig } from '../core/LevelConfig';
+import { usesSharedDungeonProgress } from '../core/SharedDungeonProgress';
 import { LevelHandler } from './LevelHandler';
 import { MissionHandler } from './MissionHandler';
 import { WorldEnter } from '../utils/WorldEnter';
@@ -1030,7 +1031,18 @@ export class CharacterHandler {
                 ? [...storedDungeonSnapshot.startedRoomIds]
                 : undefined;
              let syncEntryLevel: string | undefined = storedDungeonSnapshot?.entryLevel;
-             let syncQuestProgress: number | undefined = storedDungeonSnapshot?.questProgress;
+             // In a shared-progress dungeon the tracker belongs to the run, not to the
+             // character, so a stored snapshot of a PREVIOUS run must not seed it.
+             //
+             // This is what opened The East Wing at 75% for one member and 50% for the other,
+             // stably, across a server restart and every fix to the progress maths: the number
+             // never came from any live computation. It is each character's own memory of the
+             // last time they were here, restored at enter-world and carried to the client in
+             // the transfer payload -- which is why the shared broadcast could be measured
+             // sending percent=0 to both while the screens disagreed.
+             let syncQuestProgress: number | undefined = usesSharedDungeonProgress(currentLevelName)
+                ? undefined
+                : storedDungeonSnapshot?.questProgress;
 
              if (isDungeonLevel) {
                  const normalizedTarget = LevelConfig.normalizeLevelName(currentLevelName);
