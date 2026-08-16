@@ -40497,7 +40497,7 @@
 		<PowerGroup>PoisonDaggers</PowerGroup>
 		<AddTargetBuff>ViperbladePoison</AddTargetBuff>
 		<DisplayName>Bone Daggers</DisplayName>
-		<Description>Bone-shaped daggers favored by the Viperblade. Ranged basic attacks leave Poison. [Stats: x0.8 damage, 1.5 damage/s, over 5s]</Description>
+		<Description>Bone-shaped daggers favored by the Viperblade. Ranged basic attacks leave Poison. [Stats: x0.8 damage, 1 damage/s, over 5s]</Description>
 		<IconName>a_PowerIcon_PoisonDagger</IconName>
 		<CastSound>snd_pwr_rogue_energyball</CastSound>
 		<CastGfx/>
@@ -40531,7 +40531,7 @@
 		<AddTargetBuff>ViperbladePoison</AddTargetBuff>
 		<DisplayName>Bone Daggers</DisplayName>
 		<BasePowerName>PoisonDagger</BasePowerName>
-		<Description>Bone-shaped daggers favored by the Viperblade. Ranged basic attacks leave Poison. [Stats: x0.8 damage, 1.5 damage/s, over 5s]</Description>
+		<Description>Bone-shaped daggers favored by the Viperblade. Ranged basic attacks leave Poison. [Stats: x0.8 damage, 1 damage/s, over 5s]</Description>
 		<IconName>a_PowerIcon_PoisonDagger</IconName>
 		<CastSound>snd_pwr_rogue_energyball</CastSound>
 		<CastGfx/>
@@ -40563,7 +40563,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>DaggerFlurry</PowerGroup>
-		<AddTargetBuff>DaggerPoison</AddTargetBuff>
+		<AddTargetBuff>ViperbladePoison,ViperbladePoison</AddTargetBuff>
 		<DisplayName>Flurry of Daggers</DisplayName>
 		<Description>Throw three Poison Daggers. [Stats: x0.67 damage, 1 damage/s, over 5s]</Description>
 		<IconName>a_PowerIcon_DaggerFlurry</IconName>
@@ -40598,7 +40598,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>DaggerFlurry</PowerGroup>
-		<AddTargetBuff>DaggerPoison</AddTargetBuff>
+		<AddTargetBuff>ViperbladePoison,ViperbladePoison</AddTargetBuff>
 		<DisplayName>Flurry of Daggers</DisplayName>
 		<BasePowerName>DaggerFlurry</BasePowerName>
 		<Description>Throw three Poison Daggers. [Stats: x0.67 damage, 1 damage/s, over 5s]</Description>
@@ -40635,7 +40635,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>DaggerFlurry</PowerGroup>
-		<AddTargetBuff>DaggerPoison</AddTargetBuff>
+		<AddTargetBuff>ViperbladePoison,ViperbladePoison</AddTargetBuff>
 		<DisplayName>Flurry of Daggers</DisplayName>
 		<BasePowerName>DaggerFlurry</BasePowerName>
 		<Description>Throw three Poison Daggers. [Stats: x0.7 damage, 1 damage/s, over 5s]</Description>
@@ -40672,7 +40672,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>DaggerFlurry</PowerGroup>
-		<AddTargetBuff>DaggerPoison</AddTargetBuff>
+		<AddTargetBuff>ViperbladePoison,ViperbladePoison</AddTargetBuff>
 		<DisplayName>Flurry of Daggers</DisplayName>
 		<BasePowerName>DaggerFlurry</BasePowerName>
 		<Description>Throw three Poison Daggers. [Stats: x0.74 damage, 1 damage/s, over 5s]</Description>
@@ -40709,7 +40709,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>DaggerFlurry</PowerGroup>
-		<AddTargetBuff>DaggerPoison</AddTargetBuff>
+		<AddTargetBuff>ViperbladePoison,ViperbladePoison</AddTargetBuff>
 		<DisplayName>Flurry of Daggers</DisplayName>
 		<BasePowerName>DaggerFlurry</BasePowerName>
 		<Description>Throw three Poison Daggers. [Stats: x0.77 damage, 1 damage/s, over 5s]</Description>
@@ -40746,7 +40746,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>DaggerFlurry</PowerGroup>
-		<AddTargetBuff>DaggerPoison,DaggerPoison</AddTargetBuff>
+		<AddTargetBuff>ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison</AddTargetBuff>
 		<DisplayName>Flurry of Daggers</DisplayName>
 		<BasePowerName>DaggerFlurry</BasePowerName>
 		<Description>Throw four Poison Daggers. [Stats: x0.77 damage, 1 damage/s, over 5s]</Description>
@@ -40783,7 +40783,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>DaggerFlurry</PowerGroup>
-		<AddTargetBuff>DaggerPoison,DaggerPoison</AddTargetBuff>
+		<AddTargetBuff>ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison</AddTargetBuff>
 		<DisplayName>Flurry of Daggers</DisplayName>
 		<BasePowerName>DaggerFlurry</BasePowerName>
 		<Description>Throw four Poison Daggers. [Stats: x0.81 damage, 1 damage/s, over 5s]</Description>
@@ -40820,7 +40820,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>DaggerFlurry</PowerGroup>
-		<AddTargetBuff>DaggerPoison,DaggerPoison</AddTargetBuff>
+		<AddTargetBuff>ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison</AddTargetBuff>
 		<DisplayName>Flurry of Daggers</DisplayName>
 		<BasePowerName>DaggerFlurry</BasePowerName>
 		<Description>Throw four Poison Daggers. [Stats: x0.85 damage, 1 damage/s, over 5s]</Description>
@@ -40857,7 +40857,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>DaggerFlurry</PowerGroup>
-		<AddTargetBuff>DaggerPoison,DaggerPoison</AddTargetBuff>
+		<AddTargetBuff>ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison</AddTargetBuff>
 		<DisplayName>Flurry of Daggers</DisplayName>
 		<BasePowerName>DaggerFlurry</BasePowerName>
 		<Description>Throw four Poison Daggers. [Stats: x0.89 damage, 1 damage/s, over 5s]</Description>
@@ -40894,7 +40894,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>DaggerFlurry</PowerGroup>
-		<AddTargetBuff>DaggerPoison,DaggerPoison</AddTargetBuff>
+		<AddTargetBuff>ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison</AddTargetBuff>
 		<DisplayName>Flurry of Daggers</DisplayName>
 		<BasePowerName>DaggerFlurry</BasePowerName>
 		<Description>Throw four Poison Daggers. [Stats: x0.97 damage, 1 damage/s, over 5s]</Description>
@@ -40931,7 +40931,7 @@
 		<ProcModifier>1</ProcModifier>
 		<DamageType>Physical</DamageType>
 		<PowerGroup>DaggerFlurry</PowerGroup>
-		<AddTargetBuff>DaggerPoison,DaggerPoison,ArmorBane</AddTargetBuff>
+		<AddTargetBuff>ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison,ArmorBane</AddTargetBuff>
 		<DisplayName>Flurry of Daggers</DisplayName>
 		<BasePowerName>DaggerFlurry</BasePowerName>
 		<Description>Throw four Poison Daggers that reduce target Defense. [Stats: x0.97 damage, 1 damage/s, over 5s, -5% Defense, over 5s]</Description>

@@ -29,7 +29,8 @@ import { ensureBackup, parseSwz, writeSwz } from "./swzPatchUtils";
  * Rogue:
  *   Slapdash Decoy     armor bane removed from the explosion
  *
- * Viperblade's Bone Daggers keep their Poison DoT as the discipline's ranged basic attack.
+ * Viperblade's Bone Daggers keep a Poison DoT as the discipline's ranged basic attack, and
+ * DaggerFlurry's daggers apply the same stacking ViperbladePoison (DoTDamage 1, StackCount 16).
  * The former blanket passive is removed from actual skills: melee skills gain no extra
  * Bleed and ranged skills gain no extra Poison.
  *
@@ -147,10 +148,24 @@ const TARGET_BUFFS = new Map<string, string>([
   ["Reaper8", "ArmorBane"],
   ["Reaper9", "ArmorBane"],
   ["Reaper10", "ArmorBane"],
+  // DaggerFlurry -- each dagger stacks Viperblade poison
+  ["DaggerFlurry", "ViperbladePoison,ViperbladePoison"], // was 'DaggerPoison'
+  ["DaggerFlurry1", "ViperbladePoison,ViperbladePoison"], // was 'DaggerPoison'
+  ["DaggerFlurry2", "ViperbladePoison,ViperbladePoison"], // was 'DaggerPoison'
+  ["DaggerFlurry3", "ViperbladePoison,ViperbladePoison"], // was 'DaggerPoison'
+  ["DaggerFlurry4", "ViperbladePoison,ViperbladePoison"], // was 'DaggerPoison'
+  ["DaggerFlurry5", "ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison"], // was 'DaggerPoison,DaggerPoison'
+  ["DaggerFlurry6", "ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison"], // was 'DaggerPoison,DaggerPoison'
+  ["DaggerFlurry7", "ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison"], // was 'DaggerPoison,DaggerPoison'
+  ["DaggerFlurry8", "ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison"], // was 'DaggerPoison,DaggerPoison'
+  ["DaggerFlurry9", "ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison"], // was 'DaggerPoison,DaggerPoison'
+  ["DaggerFlurry10", "ViperbladePoison,ViperbladePoison,ViperbladePoison,ViperbladePoison,ArmorBane"], // was 'DaggerPoison,DaggerPoison,ArmorBane'
 ]);
 
-// Legacy Viperblade payloads. Bone Daggers retain ViperbladePoison; every other entry is
-// migration input used to restore each skill's normal authored/retuned buff list.
+// Legacy Viperblade payloads -- the buff lists this server used to inject. Every entry is
+// migration input used to restore each skill's normal authored/retuned buff list. Viperblade
+// poison is now the Viper's stacking DoT (BuffID 741): Bone Daggers apply one stack per hit
+// and DaggerFlurry's targets are in TARGET_BUFFS.
 const VIPERBLADE_BUFFS = new Map<string, string>([
   // SeverStrike (Melee) +Bleeding
   ["SeverStrike", "Bleeding,ViperbladeBleed"], // was 'Bleeding'
@@ -248,7 +263,7 @@ const VIPERBLADE_BUFFS = new Map<string, string>([
   ["MistWalkClose8", "Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Intimidate55,ArmorBane,ArmorBane,ViperbladeBleed"], // was 'Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Intimidate55,ArmorBane,ArmorBane'
   ["MistWalkClose9", "Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Intimidate60,ArmorBane,ArmorBane,ViperbladeBleed"], // was 'Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Intimidate60,ArmorBane,ArmorBane'
   ["MistWalkClose10", "Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Intimidate,ArmorBane,ArmorBane,ViperbladeBleed"], // was 'Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Bleeding,Intimidate,ArmorBane,ArmorBane'
-  // DaggerFlurry (RangedAoE) +PoisonStrike
+  // DaggerFlurry (RangedAoE) -- retuned targets live in TARGET_BUFFS; these are the legacy payloads
   ["DaggerFlurry", "DaggerPoison,ViperbladePoison"], // was 'DaggerPoison'
   ["DaggerFlurry1", "DaggerPoison,ViperbladePoison"], // was 'DaggerPoison'
   ["DaggerFlurry2", "DaggerPoison,ViperbladePoison"], // was 'DaggerPoison'
@@ -670,6 +685,13 @@ const GHOST_BLADE_EXPERTISE = new Map<string, string>([
 ]);
 
 const VIPERBLADE_BASIC_RANGED = new Set(["PoisonDagger", "PoisonDagger1"]);
+// Powers that are meant to apply ViperbladePoison: the Viperblade basic ranged attacks plus
+// DaggerFlurry (whose retuned buff lists live in TARGET_BUFFS). Everything else strips it.
+const VIPERBLADE_POISON_POWERS = new Set([
+  ...VIPERBLADE_BASIC_RANGED,
+  "DaggerFlurry",
+  ...Array.from({ length: 10 }, (_, i) => `DaggerFlurry${i + 1}`),
+]);
 const VIPERBLADE_POISON_BUFF = {
   name: "ViperbladePoison",
   xml: [
@@ -677,10 +699,10 @@ const VIPERBLADE_POISON_BUFF = {
     "\t\t<BuffID>741</BuffID>",
     "\t\t<Attack>true</Attack>",
     "\t\t<Duration>5000</Duration>",
-    "\t\t<DoTDamage>1.5</DoTDamage>",
+    "\t\t<DoTDamage>1</DoTDamage>",
     "\t\t<DoTTickLength>1000</DoTTickLength>",
     "\t\t<Effect>Poisoned</Effect>",
-    "\t\t<StackCount>1</StackCount>",
+    "\t\t<StackCount>16</StackCount>",
     "\t\t<BuffLoc>Head</BuffLoc>",
     "\t\t<BuffIcon>a_StatusIcon_Poisoned</BuffIcon>",
     "\t</BuffType>",
@@ -873,7 +895,7 @@ export function patchPlayerPowers(xml: string): { xml: string; stats: PatchStats
           .split(",")
           .filter((entry) => {
             if (entry === "ViperbladeBleed") return false;
-            if (entry === "ViperbladePoison" && !VIPERBLADE_BASIC_RANGED.has(powerName)) return false;
+            if (entry === "ViperbladePoison" && !VIPERBLADE_POISON_POWERS.has(powerName)) return false;
             return true;
           })
           .join(",");
@@ -1000,6 +1022,12 @@ export function patchPlayerBuffs(xml: string): { xml: string; stats: PatchStats 
           return `<MagicDamage>${expertise}</MagicDamage>\r\n\t\t${match}`;
         });
       }
+    }
+
+    if (buffName === "ViperbladePoison") {
+      touched = true;
+      next = replaceTag(next, "DoTDamage", "1", stats);
+      next = replaceTag(next, "StackCount", "16", stats);
     }
 
     if (touched) {

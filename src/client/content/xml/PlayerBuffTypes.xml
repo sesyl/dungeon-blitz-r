@@ -5841,10 +5841,10 @@
 			<BuffID>741</BuffID>
 			<Attack>true</Attack>
 			<Duration>5000</Duration>
-			<DoTDamage>1.5</DoTDamage>
+			<DoTDamage>1</DoTDamage>
 			<DoTTickLength>1000</DoTTickLength>
 			<Effect>Poisoned</Effect>
-			<StackCount>1</StackCount>
+			<StackCount>16</StackCount>
 			<BuffLoc>Head</BuffLoc>
 			<BuffIcon>a_StatusIcon_Poisoned</BuffIcon>
 		</BuffType>
