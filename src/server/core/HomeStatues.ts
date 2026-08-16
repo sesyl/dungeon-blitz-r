@@ -53,6 +53,9 @@ export interface HomeStatueSnapshot {
     pantColor: number;
     level: number;
     masterClass: number;
+    /** Guild shown under the statue's nameplate / in its inspect window, when the character had one. */
+    guildName?: string;
+    guildRank?: number;
     equippedGears: HomeStatueGear[];
     updatedAt: number;
 }
@@ -185,6 +188,8 @@ export function buildHomeStatueSnapshot(character: Character | null | undefined)
         return null;
     }
 
+    const guild = (character as Record<string, unknown> | null)?.guild as Record<string, unknown> | null | undefined;
+
     return {
         characterName,
         characterClass,
@@ -199,6 +204,8 @@ export function buildHomeStatueSnapshot(character: Character | null | undefined)
         pantColor: Math.max(0, Math.round(Number(character.pantColor ?? 0)) || 0),
         level: Math.min(63, Math.max(1, Math.round(Number(character.level ?? 1)) || 1)),
         masterClass: Math.max(0, Math.round(Number(character.MasterClass ?? 0)) || 0),
+        guildName: String(guild?.['name'] ?? ''),
+        guildRank: Math.max(0, Math.round(Number(guild?.['rank'] ?? 0)) || 0),
         equippedGears: normalizeGearList(character.equippedGears),
         updatedAt: Date.now()
     };
@@ -230,6 +237,8 @@ function normalizeSnapshot(value: unknown): HomeStatueSnapshot | null {
         pantColor: Math.max(0, Math.round(Number(raw.pantColor ?? 0)) || 0),
         level: Math.min(63, Math.max(1, Math.round(Number(raw.level ?? 1)) || 1)),
         masterClass: Math.max(0, Math.round(Number(raw.masterClass ?? 0)) || 0),
+        guildName: String(raw.guildName ?? ''),
+        guildRank: Math.max(0, Math.round(Number(raw.guildRank ?? 0)) || 0),
         equippedGears: normalizeGearList(raw.equippedGears),
         updatedAt: Math.max(0, Math.round(Number(raw.updatedAt ?? 0)) || 0)
     };
@@ -355,6 +364,8 @@ export function buildHomeStatueEntity(slot: HomeStatueSlot, snapshot: HomeStatue
             runes: [...gear.runes],
             colors: [...gear.colors]
         })),
+        guildName: String(snapshot.guildName ?? ''),
+        guildRank: Number(snapshot.guildRank ?? 0),
         abilities: [],
         level: snapshot.level,
         masterClass: snapshot.masterClass,
