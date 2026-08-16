@@ -3514,7 +3514,16 @@ export class MissionHandler {
             : MissionHandler.MISSION_IN_PROGRESS;
     }
 
+    /** Mirrors LevelHandler.traceQuestProgressSend; kept local to avoid a circular import. */
+    private static traceQuestProgressSend(origin: string, client: Client, percent: unknown): void {
+        console.log(
+            `[QuestProgressSend] ${origin} -> ${String(client.character?.name ?? '?')} ` +
+            `percent=${Number(percent ?? 0)} level=${String(client.currentLevel ?? '?')}`
+        );
+    }
+
     private static sendQuestProgress(client: Client, percent: number): void {
+        MissionHandler.traceQuestProgressSend('MissionHandler.sendQuestProgress', client, percent);
         const bb = new BitBuffer(false);
         bb.writeMethod4(percent);
         client.sendBitBuffer(0xB7, bb);
@@ -3562,6 +3571,7 @@ export class MissionHandler {
             if (other.character) {
                 other.character.questTrackerState = progress;
             }
+            MissionHandler.traceQuestProgressSend('MissionHandler.broadcast', other, progress);
             other.send(0xB7, payload);
         }
     }

@@ -1244,7 +1244,24 @@ export class LevelHandler {
     }
 
     private static sendQuestProgress(client: Client, percent: number): void {
+        LevelHandler.traceQuestProgressSend('LevelHandler.sendQuestProgress', client, percent);
         client.send(0xB7, LevelHandler.buildQuestProgressPayload(percent));
+    }
+
+    /**
+     * Every 0xB7 the server emits, tagged with its origin.
+     *
+     * The East Wing opened at 75% for one member and 50% for the other, unchanged across
+     * three separate fixes to the shared-progress maths -- which is the signal that the
+     * number was never coming from there. Seven different places emit this packet across
+     * LevelHandler and MissionHandler; the last one to fire before the screen settles is the
+     * one that decides what the player sees. Tag them all rather than reason about ordering.
+     */
+    static traceQuestProgressSend(origin: string, client: Client, percent: unknown): void {
+        console.log(
+            `[QuestProgressSend] ${origin} -> ${String(client.character?.name ?? '?')} ` +
+            `percent=${Number(percent ?? 0)} level=${String(client.currentLevel ?? '?')}`
+        );
     }
 
     private static getDialogueLanguage(character: Character | null | undefined): string {
@@ -1312,6 +1329,7 @@ export class LevelHandler {
             if (other.character) {
                 other.character.questTrackerState = progress;
             }
+            LevelHandler.traceQuestProgressSend('broadcastSharedDungeonQuestProgress', other, progress);
             other.send(0xB7, payload);
         }
     }
@@ -1453,6 +1471,7 @@ export class LevelHandler {
         }
 
         client.character.questTrackerState = sharedState.progress;
+        LevelHandler.traceQuestProgressSend('syncSharedDungeonQuestProgressState', client, sharedState.progress);
         client.send(0xB7, LevelHandler.buildQuestProgressPayload(sharedState.progress));
     }
 
