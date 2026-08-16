@@ -51,6 +51,36 @@ function createNpc(name: string, extras: Record<string, unknown> = {}): any {
 // every server-authority level, on the reasoning that the clients animate their own copies
 // -- true until the server owned the bodies. In The East Wing there is no client copy left,
 // so the skip left every enemy standing still in its idle pose.
+// The AI tick read sessionsByLevelScope, the derived index that has dropped a live member in
+// every other fan-out in this system. A scope missing from it is not ticked at all: its enemies
+// never move, and nothing holds them at their home position, so they drift out of the world.
+function testAiTickFindsScopeMissingFromTheIndex(): void {
+    const scope = 'JC_Mini2#ai-index-gap';
+    const player = createPlayer('JC_Mini2');
+    player.token = 88_777;
+    player.levelInstanceId = 'ai-index-gap';
+    player.character.CurrentLevel.x = 60;
+    const minion = createNpc('Ghoul', {
+        id: 920_501, requiredForClear: true, entState: EntityState.SLEEP, aiIdleAtHome: true
+    });
+
+    GlobalState.levelEntities.set(scope, new Map<number, any>([[minion.id, minion]]));
+    GlobalState.sessionsByToken.set(player.token, player as never);
+    // Deliberately NOT indexed: this is the state the derived index gets into on its own.
+    GlobalState.sessionsByLevelScope.delete(scope);
+    try {
+        (AILogic as any).runTick();
+        assert.equal(
+            minion.entState,
+            EntityState.ACTIVE,
+            'a scope missing from the derived index must still receive AI'
+        );
+    } finally {
+        GlobalState.levelEntities.delete(scope);
+        GlobalState.sessionsByToken.delete(player.token);
+    }
+}
+
 function testServerDrawnHostilesGetAi(): void {
     const scope = 'JC_Mini2#ai-regression';
     const player = createPlayer('JC_Mini2');
@@ -227,6 +257,7 @@ function main(): void {
     }
 
     testServerDrawnHostilesGetAi();
+    testAiTickFindsScopeMissingFromTheIndex();
 
     console.log('combat_ai_regression: ok');
 }

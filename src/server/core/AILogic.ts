@@ -241,9 +241,29 @@ export class AILogic {
         let playerCount = 0;
         let npcCount = 0;
         try {
-            for (const [levelScope, indexedSessions] of GlobalState.sessionsByLevelScope.entries()) {
+            // Live sessions, not `sessionsByLevelScope`.
+            //
+            // Every fan-out in this system that read the derived scope index eventually dropped
+            // a live member -- player visibility, the scope anchor, enemy death, enemy destroy,
+            // the dead-hostile reconcile and the quest-progress broadcast have each been
+            // converted for exactly this reason. The AI tick is the last one, and it fails
+            // harder than the rest: a scope missing from the index is not ticked at all, so
+            // nothing gives its enemies AI and nothing holds them at their home position --
+            // which is a dungeon whose enemies never move and drift out of the world.
+            const scopes = new Set<string>();
+            for (const session of GlobalState.sessionsByToken.values()) {
+                if (!session.playerSpawned) {
+                    continue;
+                }
+                const scope = getClientLevelScope(session);
+                if (scope) {
+                    scopes.add(scope);
+                }
+            }
+
+            for (const levelScope of scopes) {
                 const levelEntities = GlobalState.levelEntities.get(levelScope);
-                if (indexedSessions.size === 0 || !levelEntities || levelEntities.size === 0) {
+                if (!levelEntities || levelEntities.size === 0) {
                     continue;
                 }
                 const result = AILogic.updateLevel(levelScope);
@@ -273,7 +293,11 @@ export class AILogic {
 
         const players: Client[] = [];
         const activeCutsceneRoomIds = new Set<number>();
-        for (const session of GlobalState.getSessionsInLevelScope(levelScope)) {
+        // Live sessions, not `sessionsByLevelScope` -- the same reason as the tick loop above.
+        // A scope whose players are missing from the derived index has no AI candidates, so
+        // every enemy in it falls through to the idle reset: it never wakes, never chases, and
+        // is only ever pushed back toward its home position.
+        for (const session of GlobalState.sessionsByToken.values()) {
             if (session.playerSpawned && getClientLevelScope(session) === levelScope && session.character) {
                 players.push(session);
                 if (String(session.activeDungeonCutsceneScope ?? '').trim() === levelScope) {
