@@ -38,6 +38,7 @@
     "start:multiplayer:game": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "test:regression": "node tools/runRegressionTests.js",
+    "log:dungeon": "node tools/collectDungeonLog.js",
     "prestart:multiplayer": "npm run build",
     "start:multiplayer": "node dist/main.js",
     "start:discord-bridge": "node tools/startDiscordBridge.js",

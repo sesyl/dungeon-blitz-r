@@ -582,6 +582,16 @@ export class EntityHandler {
             waveId: npc.waveId ?? null,
             triggerId: npc.triggerId ?? null
         } as EntityProps & Record<string, unknown>;
+        // Where the cue PUT it, kept apart from where it currently is.
+        //
+        // A joiner's client spawns its own copies from those same cues, so this is the one
+        // coordinate the two sides agree on -- and unlike `x`/`y` it does not move when the
+        // enemy chases somebody across the room or dies over there. Set here rather than in
+        // `seedServerAuthorityHostiles`, because the roster is built by the NPC pass in
+        // `sendInitialLevelEntities` and the seed only fills in what that pass left out.
+        // See findServerAuthorityProxyCanonical, which matches against it.
+        (entityProps as any).spawnAnchorX = Number((entityProps as any).x ?? 0);
+        (entityProps as any).spawnAnchorY = Number((entityProps as any).y ?? 0);
         EntityHandler.applyRuntimeDungeonEntityLevel(client, levelName, entityProps);
         return entityProps;
     }
@@ -714,12 +724,89 @@ export class EntityHandler {
             moved++;
         }
 
+        EntityHandler.carryServerAuthorityRunBetweenScopes(oldScope, newScope, oldMap, newMap);
+
         if (oldMap.size === 0) {
             GlobalState.levelEntities.delete(oldScope);
         }
+    }
 
-        if (moved > 0) {
+    /**
+     * Take the run itself along when a scope is re-keyed.
+     *
+     * This function used to move only the client's OWN entities -- its player body and the
+     * hostiles it spawned, both of which carry `ownerToken`. A canonical hostile carries
+     * neither: it is `clientSpawned: false` with `ownerToken: 0`, so the entire shared roster,
+     * and with it every death the run had recorded, was left behind in the old key. The next
+     * `sendInitialLevelEntities` then found no map at the new key and seeded a fresh one --
+     * all 35 enemies alive again.
+     *
+     * That is the whole of "the enemies respawned when the second player joined". It needs no
+     * reset to happen and it logs nothing, because from the server's point of view this is
+     * simply a new scope that has never been played. The live report was `live=34` on a run
+     * whose first member had already cleared a room, and a progress bar reading 2% against
+     * their 25%.
+     *
+     * Only ever carried into an EMPTY destination. A destination that already holds canonical
+     * hostiles is a run in its own right, and the arriving member joins it rather than
+     * overwriting it -- the same rule the entity binding already follows.
+     */
+    private static carryServerAuthorityRunBetweenScopes(
+        oldScope: string,
+        newScope: string,
+        oldMap: Map<number, any>,
+        newMap: Map<number, any>
+    ): void {
+        const levelName = getScopeLevelName(oldScope);
+        if (!EntityHandler.usesServerAuthorityHostiles(levelName) || getScopeLevelName(newScope) !== levelName) {
+            return;
         }
+
+        const destinationHasRun = Array.from(newMap.values())
+            .some((entity) => EntityHandler.isServerAuthorityHostileEntity(levelName, entity));
+        if (destinationHasRun) {
+            return;
+        }
+
+        let carried = 0;
+        for (const [entityId, entity] of Array.from(oldMap.entries())) {
+            if (!EntityHandler.isServerAuthorityHostileEntity(levelName, entity)) {
+                continue;
+            }
+            oldMap.delete(entityId);
+            newMap.set(entityId, entity);
+            carried++;
+        }
+        if (carried === 0) {
+            return;
+        }
+
+        // The roster alone is not the run. Its death bookkeeping is keyed by scope too, and
+        // leaving that behind would let a joiner's fresh copies of already-killed enemies bind
+        // and stand up again, and would reopen the progress at zero.
+        EntityHandler.moveScopeKeyedEntry(EntityHandler.serverAuthorityDestroyedIdsByScope, oldScope, newScope);
+        EntityHandler.moveScopeKeyedEntry(EntityHandler.serverAuthorityDestroyedFingerprintsByScope, oldScope, newScope);
+        EntityHandler.moveScopeKeyedEntry(GlobalState.deadServerAuthorityHostilesByScope, oldScope, newScope);
+        EntityHandler.moveScopeKeyedEntry(GlobalState.levelQuestProgress, oldScope, newScope);
+        // The tier is latched per scope, and these enemies are already sized to it. Dropping it
+        // would leave the roster at the old tier while the new key resolved a different one.
+        EntityHandler.moveScopeKeyedEntry(EntityHandler.serverAuthorityScopeLevels, oldScope, newScope);
+        if (EntityHandler.serverAuthoritySeededScopes.delete(oldScope)) {
+            EntityHandler.serverAuthoritySeededScopes.add(newScope);
+        }
+
+        console.log(
+            `[EntityHandler] Carried the ${levelName} run from ${oldScope} to ${newScope} ` +
+            `(${carried} canonical hostiles) rather than reseeding it`
+        );
+    }
+
+    private static moveScopeKeyedEntry<V>(store: Map<string, V>, oldScope: string, newScope: string): void {
+        if (store.has(newScope) || !store.has(oldScope)) {
+            return;
+        }
+        store.set(newScope, store.get(oldScope) as V);
+        store.delete(oldScope);
     }
 
     private static emitJcMini1PartyScopeSnapshot(client: Client, levelName: string, reason: string): void {
@@ -835,8 +922,16 @@ export class EntityHandler {
                 continue;
             }
 
-            const candidateX = Number(candidate.x ?? NaN);
-            const candidateY = Number(candidate.y ?? NaN);
+            // Measured to where the cue PUT this enemy, not to where it is standing now.
+            //
+            // A joiner's copy always arrives on its cue's spawn point, so the anchor is the
+            // coordinate the two sides agree on. The live position is not: an enemy that
+            // chased somebody across the room -- or died over there -- drags its `x`/`y` with
+            // it, and a fresh copy then binds to whichever same-named body drifted closest.
+            // In a room holding several of one type that swaps their identities, which stands
+            // a dead enemy back up on the joiner's screen and buries a live one in its place.
+            const candidateX = Number(candidate.spawnAnchorX ?? candidate.x ?? NaN);
+            const candidateY = Number(candidate.spawnAnchorY ?? candidate.y ?? NaN);
             const distanceSq = hasProxyPosition && Number.isFinite(candidateX) && Number.isFinite(candidateY)
                 ? ((candidateX - proxyX) * (candidateX - proxyX)) + ((candidateY - proxyY) * (candidateY - proxyY))
                 : 0;
@@ -1305,6 +1400,23 @@ export class EntityHandler {
         }
 
         const isDead = Boolean(canonical.dead) || Number(canonical.entState ?? EntityState.ACTIVE) === EntityState.DEAD;
+        // The last unlit fork in the joiner chain.
+        //
+        // A joiner's client plays every cue in the room, so each of its hostiles arrives here
+        // once. `dead=` is the whole question: dead means the run already buried this enemy and
+        // the copy is about to be killed on arrival, alive means the copy is legitimately part
+        // of the fight. A run reported a joiner killing enemies the party had buried -- with
+        // the copy bound to the right canonical and reporting the full pool -- and that can only
+        // be one of two things: it attached while the canonical was still alive and the later
+        // death never reached them, or it attached to a dead one and this branch did not fire.
+        // The line says which, and nothing else in the chain can.
+        console.log(
+            `[HostileAttach] ${LevelConfig.normalizeLevelName(levelName)} ` +
+            `canonical=${canonicalId} name=${String(canonical.name ?? '?')} ` +
+            `-> ${String(client.character?.name ?? '?')}:${localId} ` +
+            `dead=${isDead} canonicalHp=${Math.round(Number(canonical.hp ?? 0))}/${Math.round(Number(canonical.maxHp ?? 0))} ` +
+            `matched=${existingCanonical ? 'roster' : 'promoted'}`
+        );
         EntityHandler.ensureServerAuthorityProxyOwner(client, canonical, localId);
         EntityHandler.registerCanonicalHostileAlias(
             client,
@@ -1748,18 +1860,39 @@ export class EntityHandler {
             return;
         }
 
+        const localCopy = client.entities.get(localId) ?? entity;
         client.entities.delete(localId);
         client.knownEntityIds.delete(localId);
         client.drawnPlayerRoomIds?.delete(localId);
         client.entityIdAliases?.delete(localId);
-        // Dead state first, destroy second.
+        // Lethal damage first, then the dead state and the destroy.
         //
         // This is the path that takes away a client's *own* copy of a hostile when it could not
-        // be bound to the canonical one -- and in The East Wing every client spawns such copies
-        // ([[east-wing-is-both-client-spawn-and-server-authority]]). Sending only the destroy
-        // left every brainless copy standing, because the client's 0x0D reader only touches the
-        // brain: two enemies alive on one screen and none on the other, with the clear count
-        // diverging behind them. The dead state is what lets the engine retire the rest.
+        // be bound to the canonical one -- a refused duplicate, an unbindable spawn -- and in
+        // The East Wing every client spawns such copies
+        // ([[east-wing-is-both-client-spawn-and-server-authority]]). Both packets it used to
+        // send are dropped by the client for an entity with no class_122 record, which is
+        // exactly what a self-spawned hostile is. So this function removed the copy from the
+        // SERVER and left it standing at full health on the screen; the comment that used to
+        // sit here claimed the dead state retired it, and it never did.
+        //
+        // That is the enemy that "respawns" for a joiner. Their client plays the room's cues,
+        // the server refuses every copy it cannot bind, and each refusal leaves a live enemy
+        // the server has no record of -- which the player then fights and kills, producing an
+        // [EnemyDeath] for a canonical the run had buried before they arrived.
+        //
+        // 0x78 has no such gate: its reader calls TakeDamage, so a lethal negative delta makes
+        // the client kill its own copy through its own death path, with the room bookkeeping
+        // its dungeon percentage is computed from.
+        const lethalHp = Math.max(
+            1,
+            Math.round(Number(
+                localCopy?.maxHp ??
+                localCopy?.hp ??
+                EntityHandler.estimateServerAuthorityHostileMaxHp(localCopy, getClientLevelScope(client))
+            )) || 1
+        );
+        client.send(0x78, EntityHandler.buildHpDeltaPayload(localId, -lethalHp));
         client.send(0x07, EntityHandler.buildEntityStateDeadPayload(localId));
         client.send(0x0D, EntityHandler.buildDestroyEntityPayload(localId));
     }

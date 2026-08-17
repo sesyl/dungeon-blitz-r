@@ -6015,10 +6015,20 @@ export class LevelHandler {
         const acceptsClientAuthorityTerminal = Boolean(
             isEnemyCanonical &&
             isDefeatEntState &&
-            DungeonCompletionConditions.isClientAuthorityBoss(
-                currentLevel,
-                canonicalEntity,
-                getClientLevelScope(client)
+            (
+                DungeonCompletionConditions.isClientAuthorityBoss(
+                    currentLevel,
+                    canonicalEntity,
+                    getClientLevelScope(client)
+                ) ||
+                // The client that owns the body is also believed about its death.
+                //
+                // Without this the refusal below fires first and returns, so the acceptance
+                // further down never runs. These hostiles are spawned, animated and killed by
+                // the owning client; the server only hears the damage that client reports, and
+                // it stops reporting the moment its own copy dies -- so the canonical keeps a
+                // remainder forever and no client-reported death would ever be honoured.
+                EntityHandler.isServerAuthorityProxyOwner(client, canonicalEntity, rawEntityId)
             )
         );
         const canonicalTerminal = isEnemyCanonical && (
@@ -6199,30 +6209,65 @@ export class LevelHandler {
                 return;
             }
             if (isDefeatEntState && !canonicalDead) {
-                // The owning client says its copy died and the canonical still has health, so
-                // the report is refused and the copy is stood back up.
+                // The client that owns the body says it died. That is the truth here.
                 //
-                // This is the last rejection in the chain with no log, and the chain is the
-                // point: the death relay only ever fires for a canonical that is ALREADY
-                // buried, so a kill refused here is a kill nobody else is told about -- a run
-                // with no [EnemyDeath] line in it, which is what the live logs show. The
-                // canonicalHp/localHp pair decides where the fix belongs: pools that disagree
-                // mean the health sync is wrong, pools that agree mean this gate is.
-                console.warn(
-                    `[HostileDeathRejected] ${currentLevel} id=${Math.round(Number(levelEntity?.id ?? entityId))} ` +
+                // This used to refuse the report and stand the copy back up, on the reasoning
+                // that the server's health is authoritative and a canonical with health left
+                // cannot be dead. The live capture is what settles it: after one member cleared
+                // a room, every canonical they had fought sat somewhere short of zero --
+                // `Ghoul 3483/26912`, `BoneFiend 5072/26912`, `ShadeWarrior 6998/26912`, and
+                // `live=35` with not one death recorded -- while their own screen showed the
+                // room empty at 25%.
+                //
+                // The remainder is structural, not a desync to be corrected. These hostiles are
+                // spawned, animated and killed by the client; the server only ever hears about
+                // the damage the client chooses to report, and the moment its own copy dies it
+                // stops reporting. So the last slice of the pool is never sent, the canonical
+                // can never reach zero on its own, and every path downstream of a death --
+                // the relay, the progress, what a joiner inherits -- waits forever on an event
+                // that cannot happen.
+                //
+                // Refusing the report also cost the run twice over: the enemy stayed alive for
+                // everyone else AND the killer's copy was stood back up, which is the enemy
+                // that "respawns".
+                //
+                // So the kill is accepted and shared, exactly as if the server had decided it.
+                // The client already owns this body; it is not being given authority it did not
+                // have, it is being believed about the one thing only it can know.
+                const previousHp = Math.round(Number(levelEntity?.hp ?? 0));
+                console.log(
+                    `[HostileDeathAccepted] ${currentLevel} id=${Math.round(Number(levelEntity?.id ?? entityId))} ` +
                     `name=${String(levelEntity?.name ?? ent?.name ?? '?')} ` +
                     `reporter=${String(client.character?.name ?? '?')} ` +
-                    `canonicalHp=${Math.round(Number(levelEntity?.hp ?? 0))}/${Math.round(Number(levelEntity?.maxHp ?? 0))} ` +
-                    `localHp=${Math.round(Number(ent?.hp ?? 0))}/${Math.round(Number(ent?.maxHp ?? 0))}`
+                    `remainder=${previousHp}/${Math.round(Number(levelEntity?.maxHp ?? 0))}`
                 );
+
+                const maxHp = Math.max(0, Math.round(Number(levelEntity?.maxHp ?? ent?.maxHp ?? 0)));
+                if (levelEntity && typeof levelEntity === 'object') {
+                    levelEntity.hp = 0;
+                    levelEntity.dead = true;
+                    levelEntity.entState = EntityState.DEAD;
+                    if (maxHp > 0) {
+                        levelEntity.healthDelta = -maxHp;
+                        levelEntity.health_delta = -maxHp;
+                    }
+                }
+                if (ent && typeof ent === 'object') {
+                    ent.hp = 0;
+                    ent.dead = true;
+                    ent.entState = EntityState.DEAD;
+                    client.entities.set(rawEntityId, ent);
+                }
+
                 const { CombatHandler } = require('./CombatHandler') as typeof import('./CombatHandler');
-                CombatHandler.correctServerAuthorityHostileProxy(
+                CombatHandler.relayClientReportedHostileDeath(
                     client,
                     getClientLevelScope(client),
-                    levelEntity,
-                    'proxy_predicted_state_rejected',
-                    rawEntityId
+                    levelEntity
                 );
+                LevelHandler.scheduleSharedDungeonQuestProgressRefresh(getClientLevelScope(client), {
+                    reason: 'client_reported_hostile_death'
+                });
                 return;
             }
 
